@@ -4,8 +4,15 @@ import cors from 'cors';
 
 import { requestId } from './middleware/requestId.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { authN } from './middleware/authN.js';
+import { authZ } from './middleware/authZ.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { AppError } from './errors/AppError.js';
 import { pingPostgres } from './infrastructure/postgres.js';
 import { pingRedis } from './infrastructure/redis.js';
+
+import authRoutes from './modules/auth/routes.js';
+import usersRoutes from './modules/users/routes.js';
 
 const app = express();
 
@@ -34,5 +41,28 @@ app.get('/readyz', async (req, res) => {
   req.log.info(body, 'readiness check');
   res.status(code).json(body);
 });
+
+// --------------- Domain API Routes ---------------
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/users', usersRoutes);
+
+// --------------- Temporary RBAC Verification Routes ---------------
+// TEMPORARY: for proving RBAC (admin only)
+app.get('/api/v1/admin/ping', authN, authZ('ADMIN'), (_req, res) => {
+  res.json({ message: 'admin pong' });
+});
+
+// TEMPORARY: for proving RBAC (host or admin)
+app.get('/api/v1/host/ping', authN, authZ('HOST', 'ADMIN'), (_req, res) => {
+  res.json({ message: 'host pong' });
+});
+
+// --------------- 404 handler ---------------
+app.use((_req, _res, next) => {
+  next(new AppError('NOT_FOUND', 404, 'Endpoint not found'));
+});
+
+// --------------- Global Error Handler ---------------
+app.use(errorHandler);
 
 export default app;

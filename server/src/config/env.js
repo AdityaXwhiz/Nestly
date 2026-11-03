@@ -37,6 +37,30 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
     .default('info'),
+
+  JWT_ACCESS_SECRET: z
+    .string()
+    .min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
+
+  JWT_TTL: z
+    .string()
+    .default('15m'),
+
+  JWT_AUDIENCE: z
+    .string()
+    .default('nestly-api'),
+
+  RATE_LIMIT_AUTH_MAX: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().positive())
+    .default('10'),
+
+  RATE_LIMIT_AUTH_WINDOW_SEC: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().positive())
+    .default('60'),
 });
 
 const result = envSchema.safeParse(process.env);
