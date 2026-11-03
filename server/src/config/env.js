@@ -23,6 +23,12 @@ const envSchema = z.object({
     .url()
     .startsWith('postgresql://', 'Must be a postgresql:// connection string'),
 
+  DB_POOL_MAX: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().positive())
+    .default('10'),
+
   REDIS_URL: z
     .string()
     .url()
