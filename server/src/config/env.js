@@ -61,6 +61,12 @@ const envSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().positive())
     .default('60'),
+
+  HOLD_TTL_SECONDS: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().positive())
+    .default('600'),
 });
 
 const result = envSchema.safeParse(process.env);

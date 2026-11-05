@@ -16,6 +16,7 @@ import usersRoutes from './modules/users/routes.js';
 import propertiesRoutes from './modules/properties/routes.js';
 import providersRoutes from './modules/providers/routes.js';
 import servicesRoutes from './modules/services/routes.js';
+import availabilityRoutes from './modules/availability/routes.js';
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.get('/readyz', async (req, res) => {
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/properties', propertiesRoutes);
+app.use('/api/v1/properties/:id/availability', availabilityRoutes);
 app.use('/api/v1/providers', providersRoutes);
 app.use('/api/v1/services', servicesRoutes);
 
