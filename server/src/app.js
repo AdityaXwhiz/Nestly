@@ -13,6 +13,9 @@ import { pingRedis } from './infrastructure/redis.js';
 
 import authRoutes from './modules/auth/routes.js';
 import usersRoutes from './modules/users/routes.js';
+import propertiesRoutes from './modules/properties/routes.js';
+import providersRoutes from './modules/providers/routes.js';
+import servicesRoutes from './modules/services/routes.js';
 
 const app = express();
 
@@ -45,6 +48,9 @@ app.get('/readyz', async (req, res) => {
 // --------------- Domain API Routes ---------------
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', usersRoutes);
+app.use('/api/v1/properties', propertiesRoutes);
+app.use('/api/v1/providers', providersRoutes);
+app.use('/api/v1/services', servicesRoutes);
 
 // --------------- Temporary RBAC Verification Routes ---------------
 // TEMPORARY: for proving RBAC (admin only)

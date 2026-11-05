@@ -33,7 +33,15 @@ export function validate(schemas) {
         }
       } else {
         // Assign parsed & transformed data back to request
-        req[target] = result.data;
+        if (target === 'query') {
+          Object.defineProperty(req, 'query', {
+            value: result.data,
+            writable: true,
+            configurable: true,
+          });
+        } else {
+          req[target] = result.data;
+        }
       }
     }
 
