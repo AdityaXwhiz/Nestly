@@ -34,12 +34,12 @@ app.get('/healthz', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-/** Readiness — can we serve traffic? (Postgres + Redis reachable) */
+/** Readiness — can we serve traffic? (Postgres is required, Redis is optional/degraded) */
 app.get('/readyz', async (req, res) => {
   const [pg, rd] = await Promise.all([pingPostgres(), pingRedis()]);
 
   const status = pg && rd ? 'ok' : 'degraded';
-  const code = pg && rd ? 200 : 503;
+  const code = pg ? 200 : 503;
 
   const body = { status, postgres: pg, redis: rd };
   req.log.info(body, 'readiness check');

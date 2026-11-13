@@ -2,16 +2,49 @@ import { reservationsRepository } from './repository.js';
 import { servicesRepository } from '../services/repository.js';
 import { outboxRepository } from '../outbox/repository.js';
 import { withTx } from '../../infrastructure/postgres.js';
+import { acquire, release } from '../../infrastructure/redis/lock.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../../errors/AppError.js';
 
 export const reservationsService = {
   /**
    * Place a temporary hold on a resource within a transaction.
-   * Enforces exclusion constraints, capacity bounds, and host-blocked calendar rules.
+   * Uses Redis locks to serialize contenders and fast-reject (RESOURCE_BUSY),
+   * while relying strictly on PostgreSQL constraints for final correctness.
    */
   async hold(item, during, holdSeconds = env.HOLD_TTL_SECONDS) {
-    return withTx(async (tx) => {
+    const lockKey =
+      item.resource_type === 'PROPERTY' || !item.slot
+        ? `lock:resource:${item.resource_id}`
+        : `lock:resource:${item.resource_id}:${item.slot}`;
+
+    let lock;
+    const isCapacityService = item.resource_type === 'SERVICE' && item.slot;
+
+    if (isCapacityService) {
+      // For capacity services, contenders serialize briefly through the lock
+      // to increment capacity without colliding on DB row locks
+      const maxRetries = 10;
+      for (let i = 0; i <= maxRetries; i++) {
+        lock = await acquire(lockKey, 5000);
+        if (lock.status !== 'busy' || i === maxRetries) break;
+        await new Promise((resolve) => setTimeout(resolve, 10 + Math.random() * 15));
+      }
+    } else {
+      // For exclusive resources (properties & exclusive services): immediate fast-reject on busy
+      lock = await acquire(lockKey, 5000);
+    }
+
+    if (lock.status === 'busy') {
+      throw new AppError(
+        'RESOURCE_BUSY',
+        409,
+        'Resource is currently being booked by someone else, please retry',
+      );
+    }
+
+    try {
+      return await withTx(async (tx) => {
       // 1. Expire stale holds for this resource and give back capacity for capacity services
       const staleHolds = await reservationsRepository.expireStaleHolds(item.resource_id, tx);
       for (const stale of staleHolds) {
@@ -121,6 +154,11 @@ export const reservationsService = {
 
       return reservation;
     });
+    } finally {
+      if (lock.token) {
+        await release(lockKey, lock.token);
+      }
+    }
   },
 
   /**

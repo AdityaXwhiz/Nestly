@@ -358,5 +358,20 @@ describe('Auth & RBAC Test Suite', () => {
       assert.equal(res.body.postgres, true);
       assert.equal(res.body.redis, true);
     });
+
+    it('returns 503 only if PostgreSQL is unreachable', async () => {
+      const origConnect = pool.connect.bind(pool);
+      pool.connect = async () => {
+        throw new Error('Postgres connection failed');
+      };
+      try {
+        const res = await request(app).get('/readyz');
+        assert.equal(res.status, 503);
+        assert.equal(res.body.status, 'degraded');
+        assert.equal(res.body.postgres, false);
+      } finally {
+        pool.connect = origConnect;
+      }
+    });
   });
 });

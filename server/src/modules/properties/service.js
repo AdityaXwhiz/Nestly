@@ -1,5 +1,6 @@
 import { propertiesRepository } from './repository.js';
 import { withTx } from '../../infrastructure/postgres.js';
+import { remember, del, generateSearchCacheKey } from '../../infrastructure/redis/cache.js';
 import { AppError } from '../../errors/AppError.js';
 
 export const propertiesService = {
@@ -55,7 +56,7 @@ export const propertiesService = {
       }
     }
 
-    return withTx(async (tx) => {
+    const result = await withTx(async (tx) => {
       const updated = await propertiesRepository.updateProperty(id, data, tx);
 
       let amenities;
@@ -71,59 +72,75 @@ export const propertiesService = {
         amenities,
       };
     });
+
+    // Invalidate entity cache on update
+    await del(`cache:property:${id}`);
+
+    return result;
   },
 
   async getPropertyById(id) {
-    const property = await propertiesRepository.findActiveById(id);
-    if (!property) {
-      throw new AppError('PROPERTY_NOT_FOUND', 404, 'Property not found');
-    }
+    return remember(`cache:property:${id}`, 300, async () => {
+      const property = await propertiesRepository.findActiveById(id);
+      if (!property) {
+        throw new AppError('PROPERTY_NOT_FOUND', 404, 'Property not found');
+      }
 
-    const amenityMap = await propertiesRepository.getAmenitiesByPropertyIds([property.id]);
-    const amenities = amenityMap.get(property.id) || [];
+      const amenityMap = await propertiesRepository.getAmenitiesByPropertyIds([property.id]);
+      const amenities = amenityMap.get(property.id) || [];
 
-    return {
-      ...property,
-      amenities,
-    };
+      return {
+        ...property,
+        amenities,
+      };
+    });
   },
 
   async listProperties(query = {}) {
-    const limit = Math.min(query.limit || 20, 50);
-    const page = query.page || 1;
-    const offset = (page - 1) * limit;
+    const cacheKey = generateSearchCacheKey('properties', query);
+    return remember(
+      cacheKey,
+      30,
+      async () => {
+        const limit = Math.min(query.limit || 20, 50);
+        const page = query.page || 1;
+        const offset = (page - 1) * limit;
 
-    const filters = {
-      location: query.location || query.city,
-      min_capacity: query.min_capacity,
-      max_price: query.max_price,
-    };
+        const filters = {
+          location: query.location || query.city,
+          min_capacity: query.min_capacity,
+          max_price: query.max_price,
+        };
 
-    const [properties, total] = await Promise.all([
-      propertiesRepository.listActive(filters, { limit, offset }),
-      propertiesRepository.countActive(filters),
-    ]);
+        const [properties, total] = await Promise.all([
+          propertiesRepository.listActive(filters, { limit, offset }),
+          propertiesRepository.countActive(filters),
+        ]);
 
-    const propertyIds = properties.map((p) => p.id);
-    const amenityMap = await propertiesRepository.getAmenitiesByPropertyIds(propertyIds);
+        const propertyIds = properties.map((p) => p.id);
+        const amenityMap = await propertiesRepository.getAmenitiesByPropertyIds(propertyIds);
 
-    const propertiesWithAmenities = properties.map((p) => ({
-      ...p,
-      amenities: amenityMap.get(p.id) || [],
-    }));
+        const propertiesWithAmenities = properties.map((p) => ({
+          ...p,
+          amenities: amenityMap.get(p.id) || [],
+        }));
 
-    return {
-      properties: propertiesWithAmenities,
-      pagination: {
-        page,
-        limit,
-        total,
-        has_more: offset + properties.length < total,
+        return {
+          properties: propertiesWithAmenities,
+          pagination: {
+            page,
+            limit,
+            total,
+            has_more: offset + properties.length < total,
+          },
+        };
       },
-    };
+      { jitterSec: 10 },
+    );
   },
 
   async deleteProperty(id) {
+    await del(`cache:property:${id}`);
     return propertiesRepository.deleteById(id);
   },
 };

@@ -1,5 +1,6 @@
 import { servicesRepository } from './repository.js';
 import { providersService } from '../providers/service.js';
+import { remember, del, generateSearchCacheKey } from '../../infrastructure/redis/cache.js';
 import { AppError } from '../../errors/AppError.js';
 
 export const servicesService = {
@@ -69,44 +70,57 @@ export const servicesService = {
       );
     }
 
-    return servicesRepository.updateService(id, updatePayload);
+    const updated = await servicesRepository.updateService(id, updatePayload);
+    await del(`cache:service:${id}`);
+    return updated;
   },
 
   async getServiceById(id) {
-    const service = await servicesRepository.findActiveById(id);
-    if (!service) {
-      throw new AppError('SERVICE_NOT_FOUND', 404, 'Service not found');
-    }
-    return service;
+    return remember(`cache:service:${id}`, 300, async () => {
+      const service = await servicesRepository.findActiveById(id);
+      if (!service) {
+        throw new AppError('SERVICE_NOT_FOUND', 404, 'Service not found');
+      }
+      return service;
+    });
   },
 
   async listServices(query = {}) {
-    const limit = Math.min(query.limit || 20, 50);
-    const page = query.page || 1;
-    const offset = (page - 1) * limit;
+    const cacheKey = generateSearchCacheKey('services', query);
+    return remember(
+      cacheKey,
+      30,
+      async () => {
+        const limit = Math.min(query.limit || 20, 50);
+        const page = query.page || 1;
+        const offset = (page - 1) * limit;
 
-    const filters = {
-      category: query.category,
-      max_price: query.max_price,
-    };
+        const filters = {
+          category: query.category,
+          max_price: query.max_price,
+        };
 
-    const [services, total] = await Promise.all([
-      servicesRepository.listActive(filters, { limit, offset }),
-      servicesRepository.countActive(filters),
-    ]);
+        const [services, total] = await Promise.all([
+          servicesRepository.listActive(filters, { limit, offset }),
+          servicesRepository.countActive(filters),
+        ]);
 
-    return {
-      services,
-      pagination: {
-        page,
-        limit,
-        total,
-        has_more: offset + services.length < total,
+        return {
+          services,
+          pagination: {
+            page,
+            limit,
+            total,
+            has_more: offset + services.length < total,
+          },
+        };
       },
-    };
+      { jitterSec: 10 },
+    );
   },
 
   async deleteService(id) {
+    await del(`cache:service:${id}`);
     return servicesRepository.deleteById(id);
   },
 };

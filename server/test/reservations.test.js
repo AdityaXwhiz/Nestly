@@ -200,7 +200,10 @@ describe('Availability & Reservations Test Suite', () => {
         assert.equal(rejected.length, 19, `Run ${run}: 19 holds must be rejected`);
 
         for (const rej of rejected) {
-          assert.equal(rej.reason.code, 'RESOURCE_CONFLICT');
+          assert.ok(
+            ['RESOURCE_BUSY', 'RESOURCE_CONFLICT'].includes(rej.reason.code),
+            `Expected 409 error code, got ${rej.reason.code}`,
+          );
           assert.equal(rej.reason.httpStatus, 409);
         }
       }
