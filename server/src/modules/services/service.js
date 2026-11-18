@@ -75,14 +75,20 @@ export const servicesService = {
     return updated;
   },
 
-  async getServiceById(id) {
-    return remember(`cache:service:${id}`, 300, async () => {
+  async getServiceById(id, { bypassCache = false } = {}) {
+    const fetchDirect = async () => {
       const service = await servicesRepository.findActiveById(id);
       if (!service) {
         throw new AppError('SERVICE_NOT_FOUND', 404, 'Service not found');
       }
       return service;
-    });
+    };
+
+    if (bypassCache) {
+      return fetchDirect();
+    }
+
+    return remember(`cache:service:${id}`, 300, fetchDirect);
   },
 
   async listServices(query = {}) {

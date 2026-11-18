@@ -124,7 +124,7 @@ export const reservationsService = {
           tx,
         );
       } catch (err) {
-        if (err.code === '23P01') {
+        if (err.code === '23P01' || err.code === '40P01' || err.code === '40001') {
           throw new AppError(
             'RESOURCE_CONFLICT',
             409,

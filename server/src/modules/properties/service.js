@@ -79,8 +79,8 @@ export const propertiesService = {
     return result;
   },
 
-  async getPropertyById(id) {
-    return remember(`cache:property:${id}`, 300, async () => {
+  async getPropertyById(id, { bypassCache = false } = {}) {
+    const fetchDirect = async () => {
       const property = await propertiesRepository.findActiveById(id);
       if (!property) {
         throw new AppError('PROPERTY_NOT_FOUND', 404, 'Property not found');
@@ -93,7 +93,13 @@ export const propertiesService = {
         ...property,
         amenities,
       };
-    });
+    };
+
+    if (bypassCache) {
+      return fetchDirect();
+    }
+
+    return remember(`cache:property:${id}`, 300, fetchDirect);
   },
 
   async listProperties(query = {}) {
