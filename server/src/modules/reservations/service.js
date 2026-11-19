@@ -164,9 +164,10 @@ export const reservationsService = {
   /**
    * Confirm an existing hold.
    * Throws 410 HOLD_EXPIRED if hold has expired.
+   * Accepts an optional external transaction client (for atomic multi-entity commits).
    */
-  async confirm(reservationId) {
-    return withTx(async (tx) => {
+  async confirm(reservationId, externalTx = null) {
+    const execute = async (tx) => {
       const confirmed = await reservationsRepository.confirm(reservationId, tx);
       if (!confirmed) {
         throw new AppError('HOLD_EXPIRED', 410, 'Reservation hold has expired');
@@ -186,15 +187,21 @@ export const reservationsService = {
       );
 
       return confirmed;
-    });
+    };
+
+    if (externalTx) {
+      return execute(externalTx);
+    }
+    return withTx(execute);
   },
 
   /**
    * Release a reservation (transition to CANCELLED).
    * Safe to call multiple times (idempotent); capacity is given back exactly once.
+   * Accepts an optional external transaction client.
    */
-  async release(reservationId) {
-    return withTx(async (tx) => {
+  async release(reservationId, externalTx = null) {
+    const execute = async (tx) => {
       const row = await reservationsRepository.release(reservationId, tx);
 
       // row is non-null only if status was actively changed
@@ -225,6 +232,96 @@ export const reservationsService = {
 
       // If already cancelled or not found, return existing record without duplicate decrement
       return reservationsRepository.findById(reservationId, tx);
-    });
+    };
+
+    if (externalTx) {
+      return execute(externalTx);
+    }
+    return withTx(execute);
+  },
+
+  /**
+   * Find all reservations for an order.
+   */
+  async getReservationsByOrderId(orderId, client = undefined) {
+    return reservationsRepository.findByOrderId(orderId, client);
+  },
+
+  /**
+   * Confirm all reservations belonging to an order inside an optional or existing transaction.
+   * Throws HOLD_EXPIRED (410) if any hold has expired.
+   */
+  async confirmOrderReservations(orderId, externalTx = null) {
+    const execute = async (tx) => {
+      const reservations = await reservationsRepository.findByOrderId(orderId, tx);
+      const confirmedList = [];
+      for (const r of reservations) {
+        const confirmed = await reservationsRepository.confirm(r.id, tx);
+        if (!confirmed) {
+          throw new AppError('HOLD_EXPIRED', 410, `Reservation ${r.id} hold has expired`);
+        }
+        await outboxRepository.createEvent(
+          {
+            aggregateId: confirmed.id,
+            eventType: 'reservation.confirmed',
+            payload: {
+              reservationId: confirmed.id,
+              resourceId: confirmed.resource_id,
+              status: confirmed.status,
+            },
+          },
+          tx,
+        );
+        confirmedList.push(confirmed);
+      }
+      return confirmedList;
+    };
+
+    if (externalTx) {
+      return execute(externalTx);
+    }
+    return withTx(execute);
+  },
+
+  /**
+   * Release all reservations belonging to an order inside an optional or existing transaction.
+   */
+  async releaseOrderReservations(orderId, externalTx = null) {
+    const execute = async (tx) => {
+      const reservations = await reservationsRepository.findByOrderId(orderId, tx);
+      const releasedList = [];
+      for (const r of reservations) {
+        const row = await reservationsRepository.release(r.id, tx);
+        if (row) {
+          if (!row.is_exclusive && row.slot) {
+            await reservationsRepository.decrementCapacity(
+              row.resource_id,
+              row.slot,
+              row.quantity,
+              tx,
+            );
+          }
+          await outboxRepository.createEvent(
+            {
+              aggregateId: row.id,
+              eventType: 'reservation.released',
+              payload: {
+                reservationId: row.id,
+                resourceId: row.resource_id,
+                status: row.status,
+              },
+            },
+            tx,
+          );
+          releasedList.push(row);
+        }
+      }
+      return releasedList;
+    };
+
+    if (externalTx) {
+      return execute(externalTx);
+    }
+    return withTx(execute);
   },
 };

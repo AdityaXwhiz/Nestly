@@ -91,18 +91,20 @@ export const ordersRepository = {
 
   /**
    * Guarded update of order status.
+   * fromStatus can be a string or array of allowed current statuses.
    * Returns updated row if transition succeeded from fromStatus; null otherwise.
    */
   async updateStatusGuarded(id, fromStatus, toStatus, { holdExpiresAt = null } = {}, client = db) {
+    const fromStatuses = Array.isArray(fromStatus) ? fromStatus : [fromStatus];
     const sql = `
       UPDATE orders
       SET status = $1,
           hold_expires_at = COALESCE($2, hold_expires_at),
           updated_at = now()
-      WHERE id = $3 AND status = $4
+      WHERE id = $3 AND status = ANY($4)
       RETURNING *;
     `;
-    const res = await client.query(sql, [toStatus, holdExpiresAt, id, fromStatus]);
+    const res = await client.query(sql, [toStatus, holdExpiresAt, id, fromStatuses]);
     return res.rows[0] || null;
   },
 

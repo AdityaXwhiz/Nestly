@@ -18,13 +18,20 @@ import providersRoutes from './modules/providers/routes.js';
 import servicesRoutes from './modules/services/routes.js';
 import availabilityRoutes from './modules/availability/routes.js';
 import ordersRoutes from './modules/orders/routes.js';
+import paymentsRoutes from './modules/payments/routes.js';
 
 const app = express();
 
 // --------------- Global middleware ---------------
 app.use(helmet());
 app.use(cors());
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf.toString('utf-8');
+    },
+  }),
+);
 app.use(requestId);
 app.use(requestLogger);
 
@@ -55,6 +62,7 @@ app.use('/api/v1/properties/:id/availability', availabilityRoutes);
 app.use('/api/v1/providers', providersRoutes);
 app.use('/api/v1/services', servicesRoutes);
 app.use('/api/v1/orders', ordersRoutes);
+app.use('/api/v1/payments', paymentsRoutes);
 
 // --------------- Temporary RBAC Verification Routes ---------------
 // TEMPORARY: for proving RBAC (admin only)

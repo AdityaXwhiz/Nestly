@@ -155,4 +155,20 @@ export const reservationsRepository = {
     const result = await client.query(query, [id]);
     return result.rows[0] || null;
   },
+
+  /**
+   * Find all reservations linked to order items of an order.
+   */
+  async findByOrderId(orderId, client = db) {
+    const query = `
+      SELECT r.id, r.order_item_id, r.resource_type, r.resource_id, r.during,
+             r.status, r.hold_expires_at, r.is_exclusive, r.quantity, r.slot, r.created_at
+      FROM reservations r
+      JOIN order_items oi ON oi.id = r.order_item_id
+      WHERE oi.order_id = $1
+      ORDER BY r.created_at ASC;
+    `;
+    const result = await client.query(query, [orderId]);
+    return result.rows;
+  },
 };

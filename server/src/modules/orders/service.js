@@ -265,4 +265,26 @@ export const ordersService = {
       );
     }
   },
+
+  /**
+   * Internal service method for cross-module orchestration (e.g. Payments).
+   */
+  async getOrderInternal(id, client = undefined) {
+    const order = await ordersRepository.findById(id, client);
+    if (!order) {
+      throw new AppError('ORDER_NOT_FOUND', 404, 'Order not found');
+    }
+    const items = await ordersRepository.findItemsByOrderId(order.id, client);
+    return {
+      ...order,
+      items,
+    };
+  },
+
+  /**
+   * Guarded update of order status across module boundaries.
+   */
+  async updateOrderStatus(id, fromStatus, toStatus, client = undefined) {
+    return ordersRepository.updateStatusGuarded(id, fromStatus, toStatus, {}, client);
+  },
 };

@@ -67,6 +67,21 @@ const envSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().positive())
     .default('600'),
+
+  PAYMENT_WEBHOOK_SECRET: z
+    .string()
+    .min(32, 'PAYMENT_WEBHOOK_SECRET must be at least 32 characters'),
+
+  PAYMENT_PROVIDER_URL: z
+    .string()
+    .url()
+    .default('http://localhost:3001'),
+
+  PAYMENT_MIN_HOLD_SECONDS: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().nonnegative())
+    .default('60'),
 });
 
 const result = envSchema.safeParse(process.env);
