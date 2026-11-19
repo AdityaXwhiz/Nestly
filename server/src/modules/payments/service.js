@@ -574,4 +574,57 @@ export const paymentsService = {
     }
     return results;
   },
+
+  /**
+   * Non-throwing internal payment lookup by ID (Change #2 & #6).
+   */
+  async findPaymentInternal(id, client = undefined) {
+    return paymentsRepository.findById(id, client);
+  },
+
+  /**
+   * Delete expired idempotency_keys on the provided transaction client.
+   */
+  async deleteExpiredIdempotencyKeys(client = undefined) {
+    return paymentsRepository.deleteExpiredIdempotencyKeys(client);
+  },
+
+  /**
+   * Payment reconciler batch job (Change #4):
+   * - Small batch of stuck PROCESSING payments
+   * - Max time budget per tick (maxDurationMs)
+   * - Also runs resumePendingPayments and retryPendingRefunds within the time budget
+   */
+  async reconcileStuckPayments({
+    olderThanSeconds = 30,
+    batchSize = 10,
+    maxDurationMs = 8000,
+  } = {}) {
+    const deadline = Date.now() + maxDurationMs;
+    const stuckProcessing = await paymentsRepository.findStuckProcessing(olderThanSeconds, batchSize);
+    const reconciled = [];
+
+    for (const payment of stuckProcessing) {
+      if (Date.now() >= deadline) break;
+      try {
+        const res = await this.reconcilePayment(payment.id);
+        reconciled.push({ paymentId: payment.id, result: res });
+      } catch (err) {
+        logger.error({ paymentId: payment.id, err: err.message }, 'Failed reconciling stuck payment');
+        reconciled.push({ paymentId: payment.id, status: 'error', error: err.message });
+      }
+    }
+
+    let resumed = [];
+    if (Date.now() < deadline) {
+      resumed = await this.resumePendingPayments(olderThanSeconds);
+    }
+
+    let refunded = [];
+    if (Date.now() < deadline) {
+      refunded = await this.retryPendingRefunds();
+    }
+
+    return { reconciled, resumed, refunded };
+  },
 };

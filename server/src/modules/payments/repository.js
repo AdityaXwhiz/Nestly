@@ -56,6 +56,20 @@ export const paymentsRepository = {
     return res.rows[0] || null;
   },
 
+  /**
+   * Delete expired idempotency_keys rows (cleanup scheduler).
+   * Uses idx_idempotency_keys_expires_at.
+   */
+  async deleteExpiredIdempotencyKeys(client = db) {
+    const query = `
+      DELETE FROM idempotency_keys
+      WHERE expires_at <= now()
+      RETURNING idempotency_key;
+    `;
+    const res = await client.query(query);
+    return res.rowCount;
+  },
+
   // ------------------ Payments ------------------
   async createPayment(
     { orderId, amountMinor, currency, status = 'CREATED', providerReference = null },
@@ -154,15 +168,16 @@ export const paymentsRepository = {
   /**
    * Find payments stuck in PROCESSING status older than a threshold (for reconciliation).
    */
-  async findStuckProcessing(olderThanSeconds, client = db) {
+  async findStuckProcessing(olderThanSeconds, limit = 10, client = db) {
     const query = `
       SELECT *
       FROM payments
       WHERE status = 'PROCESSING'
         AND updated_at <= now() - make_interval(secs => $1)
-      ORDER BY updated_at ASC;
+      ORDER BY updated_at ASC
+      LIMIT $2;
     `;
-    const res = await client.query(query, [olderThanSeconds]);
+    const res = await client.query(query, [olderThanSeconds, limit]);
     return res.rows;
   },
 

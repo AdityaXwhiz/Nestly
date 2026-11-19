@@ -47,4 +47,11 @@ export const usersService = {
   async deleteUser(id) {
     return usersRepository.deleteById(id);
   },
+
+  /**
+   * Non-throwing internal lookup by user ID.
+   */
+  async findUserInternal(id) {
+    return usersRepository.findById(id);
+  },
 };

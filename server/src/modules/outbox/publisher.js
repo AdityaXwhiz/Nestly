@@ -1,5 +1,67 @@
-import { withTx, db } from '../../infrastructure/postgres.js';
+import { SendMessageCommand } from '@aws-sdk/client-sqs';
+import { withTx } from '../../infrastructure/postgres.js';
+import { sqsClient, QUEUE_DEFINITIONS } from '../../infrastructure/sqs/client.js';
+import { env } from '../../config/env.js';
 import { logger } from '../../middleware/requestLogger.js';
+
+/**
+ * Outbox Event Envelope & aggregateId Semantics (Change #7):
+ *
+ * Envelope shape (LLD Section 9):
+ *   {
+ *     eventId: "uuid",          // Primary key (outbox.id)
+ *     eventType: "string",      // Domain event name
+ *     occurredAt: "ISO-8601",   // Timestamp when outbox row was written
+ *     aggregateId: "uuid",      // Root entity ID for this eventType (see table below)
+ *     version: 1,
+ *     payload: { ... }
+ *   }
+ *
+ * aggregateId meaning by eventType:
+ * - "order.confirmed"           -> orders.id (the confirmed order UUID)
+ * - "payment.succeeded"         -> payments.id (the payment UUID; payload also contains orderId)
+ * - "payment.failed"            -> payments.id (the failed payment UUID; payload also contains orderId)
+ * - "payment.refund_required"   -> payments.id (the payment UUID requiring refund; payload contains orderId)
+ * - "payment.refunded"          -> payments.id (the refunded payment UUID; payload contains orderId)
+ * - "reservation.held"          -> reservations.id (the held reservation UUID)
+ * - "reservation.confirmed"     -> reservations.id (the confirmed reservation UUID)
+ * - "reservation.released"      -> reservations.id (the cancelled/released reservation UUID)
+ * - "reservation.expired"       -> reservations.id (the expired reservation UUID)
+ * - "property.*"                -> properties.id (the property UUID for search indexing)
+ * - "service.*"                 -> services.id (the service UUID for search indexing)
+ */
+
+/**
+ * Routing table from eventType to target queue names (Change #3):
+ * - reservation.* and payment.succeeded -> analytics ONLY
+ * - order.confirmed -> notifications, provider-actions, analytics
+ * - payment.failed, payment.refund_required, payment.refunded -> notifications, analytics
+ * - property.*, service.* -> search-index, analytics
+ * - any other event -> analytics
+ */
+export function resolveTargetQueues(eventType) {
+  if (eventType === 'order.confirmed') {
+    return ['notifications', 'provider-actions', 'analytics'];
+  }
+
+  if (
+    eventType === 'payment.failed' ||
+    eventType === 'payment.refund_required' ||
+    eventType === 'payment.refunded'
+  ) {
+    return ['notifications', 'analytics'];
+  }
+
+  if (eventType.startsWith('reservation.') || eventType === 'payment.succeeded') {
+    return ['analytics'];
+  }
+
+  if (eventType.startsWith('property.') || eventType.startsWith('service.')) {
+    return ['search-index', 'analytics'];
+  }
+
+  return ['analytics'];
+}
 
 /**
  * Publisher interface definition.
@@ -35,7 +97,61 @@ export class LogPublisher {
   }
 }
 
-let activePublisher = process.env.NODE_ENV === 'test' ? new InMemoryPublisher() : new LogPublisher();
+export class SqsPublisher {
+  constructor(client = sqsClient) {
+    this.client = client;
+  }
+
+  async publish(envelope) {
+    const queueNames = resolveTargetQueues(envelope.eventType);
+    const body = JSON.stringify(envelope);
+
+    for (const qName of queueNames) {
+      const def = QUEUE_DEFINITIONS[qName];
+      if (!def) continue;
+
+      await this.client.send(
+        new SendMessageCommand({
+          QueueUrl: def.url,
+          MessageBody: body,
+          MessageAttributes: {
+            eventType: {
+              DataType: 'String',
+              StringValue: envelope.eventType,
+            },
+          },
+        }),
+      );
+    }
+
+    logger.info(
+      {
+        eventId: envelope.eventId,
+        eventType: envelope.eventType,
+        aggregateId: envelope.aggregateId,
+        queues: queueNames,
+      },
+      'Published outbox event to SQS',
+    );
+
+    return { status: 'published', eventId: envelope.eventId, queues: queueNames };
+  }
+}
+
+function createDefaultPublisher() {
+  if (process.env.NODE_ENV === 'test') {
+    return new InMemoryPublisher();
+  }
+  if (env.PUBLISHER === 'sqs') {
+    return new SqsPublisher();
+  }
+  if (env.PUBLISHER === 'memory') {
+    return new InMemoryPublisher();
+  }
+  return new LogPublisher();
+}
+
+let activePublisher = createDefaultPublisher();
 
 export function setPublisher(pub) {
   activePublisher = pub;

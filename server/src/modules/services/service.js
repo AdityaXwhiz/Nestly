@@ -129,4 +129,21 @@ export const servicesService = {
     await del(`cache:service:${id}`);
     return servicesRepository.deleteById(id);
   },
+
+  /**
+   * Internal cross-module lookup (does not filter out INACTIVE services).
+   */
+  async findServiceInternal(id, client = undefined) {
+    return servicesRepository.findById(id, client);
+  },
+
+  /**
+   * Resolve the provider's user_id for a given service ID using service calls.
+   */
+  async resolveServiceOwnerUserId(serviceId, client = undefined) {
+    const service = await servicesRepository.findById(serviceId, client);
+    if (!service) return null;
+    const provider = await providersService.findProviderInternal(service.provider_id, client);
+    return provider ? provider.user_id : null;
+  },
 };

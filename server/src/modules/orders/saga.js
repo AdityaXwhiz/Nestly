@@ -290,22 +290,32 @@ export const sagaOrchestrator = {
 
   /**
    * Recovers non-terminal sagas updated before threshold.
-   * Uses SELECT ... FOR UPDATE SKIP LOCKED.
+   * Claims and processes each stale saga with FOR UPDATE SKIP LOCKED so concurrent
+   * recovery passes partition work without self-locking during external provider calls.
    */
   async recoverSagas({ olderThanSeconds = env.SAGA_STALE_SECONDS } = {}) {
     const results = [];
 
-    // Find and lock stale unsettled sagas
-    const staleSagas = await sagaRepository.findStaleUnsettledSagas(olderThanSeconds);
+    // 1. Atomically claim a batch of stale unsettled sagas by bumping updated_at = now()
+    //    using FOR UPDATE SKIP LOCKED, returning their pre-claim state and order info.
+    const claimedSagas = await withTx(async (tx) => {
+      const stale = await sagaRepository.findStaleUnsettledSagas(olderThanSeconds, 20, tx);
+      for (const s of stale) {
+        // Touch updated_at inside the lock transaction so a concurrent recoverSagas()
+        // either skips the locked row (while tx is open) or sees updated_at = now() after commit.
+        await tx.query('UPDATE saga_instances SET updated_at = now() WHERE id = $1;', [s.id]);
+      }
+      return stale;
+    });
 
-    for (const saga of staleSagas) {
+    for (const saga of claimedSagas) {
       try {
         // Rule 1: AWAITING_PAYMENT (Change #1)
         if (saga.state === 'AWAITING_PAYMENT') {
           const holdExpiry = new Date(saga.hold_expires_at).getTime();
           // If hold still active, ignore it (customer still paying)
           if (holdExpiry > Date.now()) {
-            results.push({ sagaId: saga.id, action: 'ignored_active_hold' });
+            results.push({ sagaId: saga.id, orderId: saga.order_id, action: 'ignored_active_hold' });
             continue;
           }
 
@@ -313,16 +323,26 @@ export const sagaOrchestrator = {
           await reservationsService.releaseOrderReservations(saga.order_id);
           await ordersRepository.updateStatusGuarded(saga.order_id, ['HELD'], 'PENDING');
           await sagaRepository.updateState(saga.id, { state: 'FAILED', step: 0 });
-          results.push({ sagaId: saga.id, action: 'expired_awaiting_payment_recovered' });
+          results.push({
+            sagaId: saga.id,
+            orderId: saga.order_id,
+            action: 'expired_awaiting_payment_recovered',
+          });
           continue;
         }
 
         // Rule 2: Interrupted during pre-payment holding phase (Fail safe: compensate)
-        if (['STARTED', 'HOLDING_PROPERTY', 'HOLDING_SERVICES', 'COMPENSATING'].includes(saga.state)) {
+        if (
+          ['STARTED', 'HOLDING_PROPERTY', 'HOLDING_SERVICES', 'COMPENSATING'].includes(saga.state)
+        ) {
           await reservationsService.releaseOrderReservations(saga.order_id);
           await ordersRepository.updateStatusGuarded(saga.order_id, ['HELD'], 'PENDING');
           await sagaRepository.updateState(saga.id, { state: 'FAILED', step: 0 });
-          results.push({ sagaId: saga.id, action: 'holding_phase_compensated' });
+          results.push({
+            sagaId: saga.id,
+            orderId: saga.order_id,
+            action: 'holding_phase_compensated',
+          });
           continue;
         }
 
@@ -331,12 +351,18 @@ export const sagaOrchestrator = {
           const { paymentsRepository } = await import('../payments/repository.js');
           const { paymentsService } = await import('../payments/service.js');
           const payments = await paymentsRepository.findByOrderId(saga.order_id);
-          const activePayment = payments.find((p) => p.status === 'PROCESSING' || p.status === 'PENDING');
+          const activePayment = payments.find(
+            (p) => p.status === 'PROCESSING' || p.status === 'PENDING',
+          );
           if (activePayment) {
             await paymentsService.reconcilePayment(activePayment.id);
-            results.push({ sagaId: saga.id, action: 'paying_reconciled' });
+            results.push({ sagaId: saga.id, orderId: saga.order_id, action: 'paying_reconciled' });
           } else {
-            results.push({ sagaId: saga.id, action: 'no_active_payment_to_reconcile' });
+            results.push({
+              sagaId: saga.id,
+              orderId: saga.order_id,
+              action: 'no_active_payment_to_reconcile',
+            });
           }
           continue;
         }
@@ -346,19 +372,25 @@ export const sagaOrchestrator = {
           const { paymentsRepository } = await import('../payments/repository.js');
           const { paymentsService } = await import('../payments/service.js');
           const payments = await paymentsRepository.findByOrderId(saga.order_id);
-          const payment = payments.find((p) => p.status === 'SUCCESS' || p.status === 'PROCESSING');
+          const payment = payments.find(
+            (p) => p.status === 'SUCCESS' || p.status === 'PROCESSING',
+          );
 
           let confirmOk = true;
           try {
             await reservationsService.confirmOrderReservations(saga.order_id);
-          } catch (err) {
+          } catch {
             confirmOk = false;
           }
 
           if (confirmOk) {
             await ordersRepository.updateStatusGuarded(saga.order_id, ['HELD'], 'CONFIRMED');
             await sagaRepository.updateState(saga.id, { state: 'COMPLETED', step: 4 });
-            results.push({ sagaId: saga.id, action: 'confirming_completed' });
+            results.push({
+              sagaId: saga.id,
+              orderId: saga.order_id,
+              action: 'confirming_completed',
+            });
           } else {
             // Confirm failed: refund customer (BR-05)
             await reservationsService.releaseOrderReservations(saga.order_id);
@@ -368,7 +400,11 @@ export const sagaOrchestrator = {
               await paymentsService.triggerRefund(payment);
             }
             await sagaRepository.updateState(saga.id, { state: 'FAILED', step: 0 });
-            results.push({ sagaId: saga.id, action: 'confirming_failed_refunded' });
+            results.push({
+              sagaId: saga.id,
+              orderId: saga.order_id,
+              action: 'confirming_failed_refunded',
+            });
           }
           continue;
         }
@@ -384,12 +420,15 @@ export const sagaOrchestrator = {
           }
           await ordersRepository.updateStatusGuarded(saga.order_id, ['HELD'], 'FAILED');
           await sagaRepository.updateState(saga.id, { state: 'FAILED', step: 0 });
-          results.push({ sagaId: saga.id, action: 'refunding_completed' });
+          results.push({ sagaId: saga.id, orderId: saga.order_id, action: 'refunding_completed' });
           continue;
         }
       } catch (recoveryErr) {
-        logger.error({ sagaId: saga.id, err: recoveryErr.message }, 'Saga recovery error on instance');
-        results.push({ sagaId: saga.id, error: recoveryErr.message });
+        logger.error(
+          { sagaId: saga.id, err: recoveryErr.message },
+          'Saga recovery error on instance',
+        );
+        results.push({ sagaId: saga.id, orderId: saga.order_id, error: recoveryErr.message });
       }
     }
 

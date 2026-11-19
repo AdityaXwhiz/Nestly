@@ -481,8 +481,13 @@ describe('Saga Orchestrator, Recovery and Outbox Test Suite', () => {
         sagaOrchestrator.recoverSagas({ olderThanSeconds: 30 }),
       ]);
 
-      const actions1 = r1.filter((r) => r.action === 'holding_phase_compensated');
-      const actions2 = r2.filter((r) => r.action === 'holding_phase_compensated');
+      const targetOrders = new Set([order1.id, order2.id]);
+      const actions1 = r1.filter(
+        (r) => r.action === 'holding_phase_compensated' && targetOrders.has(r.orderId),
+      );
+      const actions2 = r2.filter(
+        (r) => r.action === 'holding_phase_compensated' && targetOrders.has(r.orderId),
+      );
 
       // The 2 sagas are partitioned and recovered exactly once overall
       assert.equal(actions1.length + actions2.length, 2);

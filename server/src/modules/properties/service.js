@@ -149,4 +149,11 @@ export const propertiesService = {
     await del(`cache:property:${id}`);
     return propertiesRepository.deleteById(id);
   },
+
+  /**
+   * Internal cross-module lookup (does not filter out INACTIVE properties).
+   */
+  async findPropertyInternal(id, client = undefined) {
+    return propertiesRepository.findById(id, client);
+  },
 };

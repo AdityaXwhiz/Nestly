@@ -17,4 +17,19 @@ export const outboxRepository = {
     ]);
     return result.rows[0];
   },
+
+  /**
+   * Delete published outbox rows older than retentionDays (cleanup scheduler).
+   * Uses the partial index idx_outbox_published_at.
+   */
+  async deleteOldPublished(retentionDays, client = db) {
+    const query = `
+      DELETE FROM outbox
+      WHERE published_at IS NOT NULL
+        AND published_at <= now() - make_interval(days => $1)
+      RETURNING id;
+    `;
+    const result = await client.query(query, [retentionDays]);
+    return result.rowCount;
+  },
 };

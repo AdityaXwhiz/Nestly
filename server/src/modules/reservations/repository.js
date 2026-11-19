@@ -92,6 +92,36 @@ export const reservationsRepository = {
   },
 
   /**
+   * Hold sweeper batch query (Change #5):
+   * Uses the partial index reservations_hold_sweep (WHERE status = 'HELD' AND hold_expires_at <= now())
+   * in batches (LIMIT $1) with FOR UPDATE SKIP LOCKED and guarded status = 'HELD' check,
+   * guaranteeing that if lazy expiry and the sweeper race on the same row,
+   * exactly ONE updates the row and receives it in RETURNING.
+   */
+  async expireStaleHoldsBatch(batchSize = 200, client = db) {
+    const query = `
+      WITH to_expire AS (
+        SELECT id
+        FROM reservations
+        WHERE status = 'HELD'
+          AND hold_expires_at <= now()
+        ORDER BY hold_expires_at ASC
+        LIMIT $1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE reservations r
+      SET status = 'EXPIRED'
+      FROM to_expire
+      WHERE r.id = to_expire.id
+        AND r.status = 'HELD'
+      RETURNING r.id, r.order_item_id, r.resource_type, r.resource_id, r.during,
+                r.status, r.hold_expires_at, r.is_exclusive, r.quantity, r.slot;
+    `;
+    const result = await client.query(query, [batchSize]);
+    return result.rows;
+  },
+
+  /**
    * Check if a property has host-blocked intervals (is_available = false) in availability table.
    */
   async checkPropertyBlocked(propertyId, during, client = db) {

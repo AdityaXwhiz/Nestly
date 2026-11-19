@@ -47,4 +47,26 @@ export const providersService = {
   async deleteProvider(id) {
     return providersRepository.deleteById(id);
   },
+
+  /**
+   * Internal lookup by provider ID without throwing 404.
+   */
+  async findProviderInternal(id, client = undefined) {
+    return providersRepository.findById(id, client);
+  },
+
+  /**
+   * Create a fulfilment action record per confirmed order item.
+   * Natural idempotency enforced by UNIQUE (order_item_id, action).
+   */
+  async createProviderAction(data, client = undefined) {
+    return providersRepository.createProviderAction(data, client);
+  },
+
+  /**
+   * List fulfilment actions for an order.
+   */
+  async listActionsByOrderId(orderId, client = undefined) {
+    return providersRepository.findActionsByOrderId(orderId, client);
+  },
 };

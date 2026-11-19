@@ -44,4 +44,48 @@ export const providersRepository = {
     const result = await client.query(query, [id]);
     return result.rows[0] || null;
   },
+
+  // ------------------ Provider Fulfilment Actions ------------------
+  async createProviderAction(
+    {
+      orderId,
+      orderItemId,
+      providerUserId,
+      resourceType,
+      resourceId,
+      action = 'FULFIL_ITEM',
+      payload = {},
+    },
+    client = db,
+  ) {
+    const query = `
+      INSERT INTO provider_actions (
+        order_id, order_item_id, provider_user_id, resource_type, resource_id, action, status, payload
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7::jsonb)
+      ON CONFLICT (order_item_id, action) DO NOTHING
+      RETURNING *;
+    `;
+    const result = await client.query(query, [
+      orderId,
+      orderItemId,
+      providerUserId,
+      resourceType,
+      resourceId,
+      action,
+      JSON.stringify(payload),
+    ]);
+    return result.rows[0] || null;
+  },
+
+  async findActionsByOrderId(orderId, client = db) {
+    const query = `
+      SELECT *
+      FROM provider_actions
+      WHERE order_id = $1
+      ORDER BY created_at ASC;
+    `;
+    const result = await client.query(query, [orderId]);
+    return result.rows;
+  },
 };

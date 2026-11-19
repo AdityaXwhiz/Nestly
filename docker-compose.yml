@@ -31,6 +31,19 @@ services:
       timeout: 3s
       retries: 5
 
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.12
+    container_name: nestly-elasticmq
+    restart: unless-stopped
+    ports:
+      - '9324:9324'
+      - '9325:9325'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '-', 'http://localhost:9324/?Action=ListQueues']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   pg_data:
   redis_data:

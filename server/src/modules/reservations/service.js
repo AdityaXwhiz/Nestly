@@ -351,4 +351,51 @@ export const reservationsService = {
     }
     return withTx(execute);
   },
+
+  /**
+   * Hold Sweeper (Change #4 & #5):
+   * Sets HELD reservations past hold_expires_at to EXPIRED in batches (LIMIT 200),
+   * gives capacity back exactly once, and writes reservation.expired outbox events
+   * on the same transaction client.
+   */
+  async sweepExpiredHolds({ batchSize = 200 } = {}, externalTx = null) {
+    const execute = async (tx) => {
+      const expiredRows = await reservationsRepository.expireStaleHoldsBatch(batchSize, tx);
+
+      for (const row of expiredRows) {
+        if (!row.is_exclusive && row.slot) {
+          await reservationsRepository.decrementCapacity(
+            row.resource_id,
+            row.slot,
+            row.quantity,
+            tx,
+          );
+        }
+
+        await outboxRepository.createEvent(
+          {
+            aggregateId: row.id,
+            eventType: 'reservation.expired',
+            payload: {
+              reservationId: row.id,
+              orderItemId: row.order_item_id,
+              resourceType: row.resource_type,
+              resourceId: row.resource_id,
+              status: row.status,
+              quantity: row.quantity,
+              slot: row.slot,
+            },
+          },
+          tx,
+        );
+      }
+
+      return expiredRows;
+    };
+
+    if (externalTx) {
+      return execute(externalTx);
+    }
+    return withTx(execute);
+  },
 };

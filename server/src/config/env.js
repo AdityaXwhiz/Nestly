@@ -88,7 +88,71 @@ const envSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().positive())
     .default('60'),
-});
+
+  WORKER_ROLES: z
+    .string()
+    .default('publisher,schedulers,notification,provider-actions,analytics'),
+
+  OUTBOX_RETENTION_DAYS: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().positive())
+    .default('7'),
+
+  NOTIFICATION_RETRY_MINUTES: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().positive())
+    .default('5'),
+
+  PUBLISHER: z
+    .enum(['sqs', 'log', 'memory'])
+    .default('log'),
+
+  AWS_REGION: z
+    .string()
+    .default('us-east-1'),
+
+  SQS_ENDPOINT: z
+    .string()
+    .url()
+    .optional(),
+
+  AWS_ACCESS_KEY_ID: z
+    .string()
+    .optional(),
+
+  AWS_SECRET_ACCESS_KEY: z
+    .string()
+    .optional(),
+
+  SQS_QUEUE_URL_NOTIFICATIONS: z
+    .string()
+    .url()
+    .default('http://localhost:9324/000000000000/notifications'),
+
+  SQS_QUEUE_URL_PROVIDER_ACTIONS: z
+    .string()
+    .url()
+    .default('http://localhost:9324/000000000000/provider-actions'),
+
+  SQS_QUEUE_URL_ANALYTICS: z
+    .string()
+    .url()
+    .default('http://localhost:9324/000000000000/analytics'),
+
+  SQS_QUEUE_URL_SEARCH_INDEX: z
+    .string()
+    .url()
+    .default('http://localhost:9324/000000000000/search-index'),
+}).transform((data) => ({
+  ...data,
+  // AWS key defaults apply ONLY when SQS_ENDPOINT is set (local ElasticMQ)
+  AWS_ACCESS_KEY_ID:
+    data.AWS_ACCESS_KEY_ID || (data.SQS_ENDPOINT ? 'nestly_local_key' : undefined),
+  AWS_SECRET_ACCESS_KEY:
+    data.AWS_SECRET_ACCESS_KEY || (data.SQS_ENDPOINT ? 'nestly_local_secret' : undefined),
+}));
 
 const result = envSchema.safeParse(process.env);
 

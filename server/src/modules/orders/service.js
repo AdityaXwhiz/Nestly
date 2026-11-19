@@ -212,6 +212,21 @@ export const ordersService = {
   },
 
   /**
+   * Non-throwing internal lookup for async consumers (returns null if missing, Change #6).
+   */
+  async findOrderInternal(id, client = undefined) {
+    const order = await ordersRepository.findById(id, client);
+    if (!order) {
+      return null;
+    }
+    const items = await ordersRepository.findItemsByOrderId(order.id, client);
+    return {
+      ...order,
+      items,
+    };
+  },
+
+  /**
    * Guarded update of order status across module boundaries.
    */
   async updateOrderStatus(id, fromStatus, toStatus, client = undefined) {
