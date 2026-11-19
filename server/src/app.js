@@ -19,6 +19,7 @@ import servicesRoutes from './modules/services/routes.js';
 import availabilityRoutes from './modules/availability/routes.js';
 import ordersRoutes from './modules/orders/routes.js';
 import paymentsRoutes from './modules/payments/routes.js';
+import searchRoutes from './modules/search/routes.js';
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use('/api/v1/providers', providersRoutes);
 app.use('/api/v1/services', servicesRoutes);
 app.use('/api/v1/orders', ordersRoutes);
 app.use('/api/v1/payments', paymentsRoutes);
+app.use('/api/v1/search', searchRoutes);
 
 // --------------- Temporary RBAC Verification Routes ---------------
 // TEMPORARY: for proving RBAC (admin only)

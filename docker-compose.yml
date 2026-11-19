@@ -64,7 +64,29 @@ services:
       timeout: 3s
       retries: 5
 
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    container_name: nestly-opensearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      # Security plugin disabled for LOCAL development only; production AWS OpenSearch uses VPC private subnets, security groups, and IAM.
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ports:
+      - '9200:9200'
+      - '9600:9600'
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9200/_cluster/health?local=true']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   pg_data:
   redis_data:
   minio_data:
+  opensearch_data:

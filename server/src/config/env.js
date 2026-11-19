@@ -91,7 +91,7 @@ const envSchema = z.object({
 
   WORKER_ROLES: z
     .string()
-    .default('publisher,schedulers,notification,provider-actions,analytics'),
+    .default('publisher,schedulers,notification,provider-actions,analytics,search-index'),
 
   OUTBOX_RETENTION_DAYS: z
     .string()
@@ -165,6 +165,16 @@ const envSchema = z.object({
     .string()
     .url()
     .default('http://localhost:9000/nestly-media'),
+
+  // OpenSearch (catalog search)
+  OPENSEARCH_ENDPOINT: z
+    .string()
+    .url()
+    .default('http://localhost:9200'),
+
+  OPENSEARCH_INDEX_PREFIX: z
+    .string()
+    .default('nestly'),
 }).transform((data) => ({
   ...data,
   // AWS key defaults apply ONLY when SQS_ENDPOINT or S3_ENDPOINT is set (local ElasticMQ / MinIO)

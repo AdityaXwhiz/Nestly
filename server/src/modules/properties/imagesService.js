@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { propertyImagesRepository } from './imagesRepository.js';
 import { propertiesRepository } from './repository.js';
+import { outboxRepository } from '../outbox/repository.js';
 import { s3Service } from '../../infrastructure/s3/s3Service.js';
 import { withTx } from '../../infrastructure/postgres.js';
 import { del } from '../../infrastructure/redis/cache.js';
@@ -181,6 +182,18 @@ export const propertyImagesService = {
     // Invalidate property cache
     await del(`cache:property:${propertyId}`);
 
+    // Explicitly bump property version in DB and emit property.updated outbox event (Change #2)
+    const bumpedProperty = await propertiesRepository.bumpPropertyVersion(propertyId);
+    await outboxRepository.createEvent({
+      aggregateId: propertyId,
+      eventType: 'property.updated',
+      payload: {
+        id: propertyId,
+        hostId: bumpedProperty?.host_id,
+        version: Number(bumpedProperty?.version || 1),
+      },
+    });
+
     return { image: formatImage(readyRow) };
   },
 
@@ -210,6 +223,18 @@ export const propertyImagesService = {
 
     // Invalidate Redis cache
     await del(`cache:property:${propertyId}`);
+
+    // Explicitly bump property version in DB and emit property.updated outbox event (Change #2)
+    const bumpedProperty = await propertiesRepository.bumpPropertyVersion(propertyId);
+    await outboxRepository.createEvent({
+      aggregateId: propertyId,
+      eventType: 'property.updated',
+      payload: {
+        id: propertyId,
+        hostId: bumpedProperty?.host_id,
+        version: Number(bumpedProperty?.version || 1),
+      },
+    });
 
     // 4. Delete S3 object (best-effort, log failure)
     try {

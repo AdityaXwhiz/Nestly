@@ -1,6 +1,7 @@
 import { propertiesRepository } from './repository.js';
 import { propertyImagesRepository } from './imagesRepository.js';
 import { formatImage } from './imagesService.js';
+import { outboxRepository } from '../outbox/repository.js';
 import { withTx } from '../../infrastructure/postgres.js';
 import { remember, del, generateSearchCacheKey } from '../../infrastructure/redis/cache.js';
 import { AppError } from '../../errors/AppError.js';
@@ -25,6 +26,20 @@ export const propertiesService = {
       const amenities = await propertiesRepository.setAmenities(
         property.id,
         data.amenities || [],
+        tx,
+      );
+
+      // Emit property.created event in outbox
+      await outboxRepository.createEvent(
+        {
+          aggregateId: property.id,
+          eventType: 'property.created',
+          payload: {
+            id: property.id,
+            hostId: property.host_id,
+            version: Number(property.version || 1),
+          },
+        },
         tx,
       );
 
@@ -60,11 +75,17 @@ export const propertiesService = {
     }
 
     const result = await withTx(async (tx) => {
-      const updated = await propertiesRepository.updateProperty(id, data, tx);
+      let updated = await propertiesRepository.updateProperty(id, data, tx);
 
       let amenities;
       if (data.amenities !== undefined) {
         amenities = await propertiesRepository.setAmenities(id, data.amenities, tx);
+        // If no direct property columns changed but amenities changed, bump property version explicitly (Change #2)
+        const directFields = ['title', 'description', 'location', 'capacity', 'pricing_minor', 'currency', 'status'];
+        const hasDirectUpdates = directFields.some((f) => data[f] !== undefined);
+        if (!hasDirectUpdates) {
+          updated = await propertiesRepository.bumpPropertyVersion(id, tx);
+        }
       } else {
         const amenityMap = await propertiesRepository.getAmenitiesByPropertyIds([id], tx);
         amenities = amenityMap.get(id) || [];
@@ -72,6 +93,25 @@ export const propertiesService = {
 
       const imageRows = await propertyImagesRepository.listReadyByPropertyId(id, tx);
       const images = imageRows.map(formatImage);
+
+      const eventType =
+        data.status && data.status !== existing.status
+          ? 'property.status_changed'
+          : 'property.updated';
+
+      await outboxRepository.createEvent(
+        {
+          aggregateId: id,
+          eventType,
+          payload: {
+            id,
+            hostId: updated.host_id,
+            status: updated.status,
+            version: Number(updated.version || 1),
+          },
+        },
+        tx,
+      );
 
       return {
         ...updated,
@@ -114,51 +154,54 @@ export const propertiesService = {
     return remember(`cache:property:${id}`, 300, fetchDirect);
   },
 
-  async listProperties(query = {}) {
+  async listProperties(query = {}, { bypassCache = false } = {}) {
+    const fetchDirect = async () => {
+      const limit = Math.min(query.limit || 20, 50);
+      const page = query.page || 1;
+      const offset = (page - 1) * limit;
+
+      const filters = {
+        q: query.q,
+        location: query.location || query.city,
+        min_capacity: query.min_capacity,
+        max_price: query.max_price,
+        amenities: query.amenities,
+      };
+
+      const [properties, total] = await Promise.all([
+        propertiesRepository.listActive(filters, { limit, offset }),
+        propertiesRepository.countActive(filters),
+      ]);
+
+      const propertyIds = properties.map((p) => p.id);
+      const [amenityMap, imageMap] = await Promise.all([
+        propertiesRepository.getAmenitiesByPropertyIds(propertyIds),
+        propertyImagesRepository.getReadyImagesByPropertyIds(propertyIds),
+      ]);
+
+      const propertiesWithAmenities = properties.map((p) => ({
+        ...p,
+        amenities: amenityMap.get(p.id) || [],
+        images: (imageMap.get(p.id) || []).map(formatImage),
+      }));
+
+      return {
+        properties: propertiesWithAmenities,
+        pagination: {
+          page,
+          limit,
+          total,
+          has_more: offset + properties.length < total,
+        },
+      };
+    };
+
+    if (bypassCache) {
+      return fetchDirect();
+    }
+
     const cacheKey = generateSearchCacheKey('properties', query);
-    return remember(
-      cacheKey,
-      30,
-      async () => {
-        const limit = Math.min(query.limit || 20, 50);
-        const page = query.page || 1;
-        const offset = (page - 1) * limit;
-
-        const filters = {
-          location: query.location || query.city,
-          min_capacity: query.min_capacity,
-          max_price: query.max_price,
-        };
-
-        const [properties, total] = await Promise.all([
-          propertiesRepository.listActive(filters, { limit, offset }),
-          propertiesRepository.countActive(filters),
-        ]);
-
-        const propertyIds = properties.map((p) => p.id);
-        const [amenityMap, imageMap] = await Promise.all([
-          propertiesRepository.getAmenitiesByPropertyIds(propertyIds),
-          propertyImagesRepository.getReadyImagesByPropertyIds(propertyIds),
-        ]);
-
-        const propertiesWithAmenities = properties.map((p) => ({
-          ...p,
-          amenities: amenityMap.get(p.id) || [],
-          images: (imageMap.get(p.id) || []).map(formatImage),
-        }));
-
-        return {
-          properties: propertiesWithAmenities,
-          pagination: {
-            page,
-            limit,
-            total,
-            has_more: offset + properties.length < total,
-          },
-        };
-      },
-      { jitterSec: 10 },
-    );
+    return remember(cacheKey, 30, fetchDirect, { jitterSec: 10 });
   },
 
   async deleteProperty(id) {

@@ -17,7 +17,7 @@ export const propertiesRepository = {
         host_id, title, description, location, capacity, pricing_minor, currency, status
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, host_id, title, description, location, capacity, pricing_minor, currency, status, created_at, updated_at
+      RETURNING id, host_id, title, description, location, capacity, pricing_minor, currency, status, version, created_at, updated_at
     `;
     const result = await client.query(query, [
       hostId,
@@ -66,16 +66,27 @@ export const propertiesRepository = {
       UPDATE properties
       SET ${setClauses.join(', ')}
       WHERE id = $${paramIndex}
-      RETURNING id, host_id, title, description, location, capacity, pricing_minor, currency, status, created_at, updated_at
+      RETURNING id, host_id, title, description, location, capacity, pricing_minor, currency, status, version, created_at, updated_at
     `;
 
     const result = await client.query(query, values);
     return result.rows[0] || null;
   },
 
+  async bumpPropertyVersion(id, client = db) {
+    const query = `
+      UPDATE properties
+      SET updated_at = now()
+      WHERE id = $1
+      RETURNING id, host_id, title, description, location, capacity, pricing_minor, currency, status, version, created_at, updated_at
+    `;
+    const result = await client.query(query, [id]);
+    return result.rows[0] || null;
+  },
+
   async findById(id, client = db) {
     const query = `
-      SELECT id, host_id, title, description, location, capacity, pricing_minor, currency, status, created_at, updated_at
+      SELECT id, host_id, title, description, location, capacity, pricing_minor, currency, status, version, created_at, updated_at
       FROM properties
       WHERE id = $1
     `;
@@ -85,7 +96,7 @@ export const propertiesRepository = {
 
   async findActiveById(id, client = db) {
     const query = `
-      SELECT id, host_id, title, description, location, capacity, pricing_minor, currency, status, created_at, updated_at
+      SELECT id, host_id, title, description, location, capacity, pricing_minor, currency, status, version, created_at, updated_at
       FROM properties
       WHERE id = $1 AND status = 'ACTIVE'
     `;
@@ -97,6 +108,13 @@ export const propertiesRepository = {
     const conditions = ["status = 'ACTIVE'"];
     const values = [];
     let paramIndex = 1;
+
+    if (filters.q) {
+      const escaped = escapeLikePattern(filters.q.trim().toLowerCase());
+      conditions.push(`lower(title) LIKE $${paramIndex} || '%' ESCAPE '\\'`);
+      values.push(escaped);
+      paramIndex++;
+    }
 
     if (filters.location) {
       const escaped = escapeLikePattern(filters.location.trim().toLowerCase());
@@ -117,13 +135,29 @@ export const propertiesRepository = {
       paramIndex++;
     }
 
+    if (filters.amenities && filters.amenities.length > 0) {
+      const amenityNames = Array.isArray(filters.amenities)
+        ? filters.amenities
+        : [filters.amenities];
+      conditions.push(`id IN (
+        SELECT property_id FROM amenities
+        WHERE lower(name) = ANY($${paramIndex}::text[])
+        GROUP BY property_id
+        HAVING count(DISTINCT lower(name)) = $${paramIndex + 1}
+      )`);
+      values.push(amenityNames.map((a) => a.trim().toLowerCase()));
+      paramIndex++;
+      values.push(amenityNames.length);
+      paramIndex++;
+    }
+
     values.push(limit);
     const limitParam = `$${paramIndex++}`;
     values.push(offset);
     const offsetParam = `$${paramIndex++}`;
 
     const query = `
-      SELECT id, host_id, title, description, location, capacity, pricing_minor, currency, status, created_at, updated_at
+      SELECT id, host_id, title, description, location, capacity, pricing_minor, currency, status, version, created_at, updated_at
       FROM properties
       WHERE ${conditions.join(' AND ')}
       ORDER BY created_at DESC, id DESC
@@ -139,6 +173,13 @@ export const propertiesRepository = {
     const values = [];
     let paramIndex = 1;
 
+    if (filters.q) {
+      const escaped = escapeLikePattern(filters.q.trim().toLowerCase());
+      conditions.push(`lower(title) LIKE $${paramIndex} || '%' ESCAPE '\\'`);
+      values.push(escaped);
+      paramIndex++;
+    }
+
     if (filters.location) {
       const escaped = escapeLikePattern(filters.location.trim().toLowerCase());
       conditions.push(`lower(location) LIKE $${paramIndex} || '%' ESCAPE '\\'`);
@@ -155,6 +196,22 @@ export const propertiesRepository = {
     if (filters.max_price !== undefined) {
       conditions.push(`pricing_minor <= $${paramIndex}`);
       values.push(filters.max_price);
+      paramIndex++;
+    }
+
+    if (filters.amenities && filters.amenities.length > 0) {
+      const amenityNames = Array.isArray(filters.amenities)
+        ? filters.amenities
+        : [filters.amenities];
+      conditions.push(`id IN (
+        SELECT property_id FROM amenities
+        WHERE lower(name) = ANY($${paramIndex}::text[])
+        GROUP BY property_id
+        HAVING count(DISTINCT lower(name)) = $${paramIndex + 1}
+      )`);
+      values.push(amenityNames.map((a) => a.trim().toLowerCase()));
+      paramIndex++;
+      values.push(amenityNames.length);
       paramIndex++;
     }
 

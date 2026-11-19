@@ -1,5 +1,7 @@
 import { servicesRepository } from './repository.js';
 import { providersService } from '../providers/service.js';
+import { outboxRepository } from '../outbox/repository.js';
+import { withTx } from '../../infrastructure/postgres.js';
 import { remember, del, generateSearchCacheKey } from '../../infrastructure/redis/cache.js';
 import { AppError } from '../../errors/AppError.js';
 
@@ -25,17 +27,37 @@ export const servicesService = {
       );
     }
 
-    return servicesRepository.createService({
-      providerId: provider.id,
-      title,
-      description: data.description,
-      category: data.category,
-      kind: data.kind,
-      priceMinor: data.price_minor,
-      currency: data.currency,
-      durationMinutes: data.duration_minutes,
-      capacity: data.capacity,
-      status: data.status,
+    return withTx(async (tx) => {
+      const service = await servicesRepository.createService(
+        {
+          providerId: provider.id,
+          title,
+          description: data.description,
+          category: data.category,
+          kind: data.kind,
+          priceMinor: data.price_minor,
+          currency: data.currency,
+          durationMinutes: data.duration_minutes,
+          capacity: data.capacity,
+          status: data.status,
+        },
+        tx,
+      );
+
+      await outboxRepository.createEvent(
+        {
+          aggregateId: service.id,
+          eventType: 'service.created',
+          payload: {
+            id: service.id,
+            providerId: service.provider_id,
+            version: Number(service.version || 1),
+          },
+        },
+        tx,
+      );
+
+      return service;
     });
   },
 
@@ -70,9 +92,31 @@ export const servicesService = {
       );
     }
 
-    const updated = await servicesRepository.updateService(id, updatePayload);
-    await del(`cache:service:${id}`);
-    return updated;
+    return withTx(async (tx) => {
+      const updated = await servicesRepository.updateService(id, updatePayload, tx);
+
+      const eventType =
+        data.status && data.status !== existing.status
+          ? 'service.status_changed'
+          : 'service.updated';
+
+      await outboxRepository.createEvent(
+        {
+          aggregateId: id,
+          eventType,
+          payload: {
+            id,
+            providerId: updated.provider_id,
+            status: updated.status,
+            version: Number(updated.version || 1),
+          },
+        },
+        tx,
+      );
+
+      await del(`cache:service:${id}`);
+      return updated;
+    });
   },
 
   async getServiceById(id, { bypassCache = false } = {}) {
@@ -91,38 +135,40 @@ export const servicesService = {
     return remember(`cache:service:${id}`, 300, fetchDirect);
   },
 
-  async listServices(query = {}) {
+  async listServices(query = {}, { bypassCache = false } = {}) {
+    const fetchDirect = async () => {
+      const limit = Math.min(query.limit || 20, 50);
+      const page = query.page || 1;
+      const offset = (page - 1) * limit;
+
+      const filters = {
+        q: query.q,
+        category: query.category,
+        max_price: query.max_price,
+      };
+
+      const [services, total] = await Promise.all([
+        servicesRepository.listActive(filters, { limit, offset }),
+        servicesRepository.countActive(filters),
+      ]);
+
+      return {
+        services,
+        pagination: {
+          page,
+          limit,
+          total,
+          has_more: offset + services.length < total,
+        },
+      };
+    };
+
+    if (bypassCache) {
+      return fetchDirect();
+    }
+
     const cacheKey = generateSearchCacheKey('services', query);
-    return remember(
-      cacheKey,
-      30,
-      async () => {
-        const limit = Math.min(query.limit || 20, 50);
-        const page = query.page || 1;
-        const offset = (page - 1) * limit;
-
-        const filters = {
-          category: query.category,
-          max_price: query.max_price,
-        };
-
-        const [services, total] = await Promise.all([
-          servicesRepository.listActive(filters, { limit, offset }),
-          servicesRepository.countActive(filters),
-        ]);
-
-        return {
-          services,
-          pagination: {
-            page,
-            limit,
-            total,
-            has_more: offset + services.length < total,
-          },
-        };
-      },
-      { jitterSec: 10 },
-    );
+    return remember(cacheKey, 30, fetchDirect, { jitterSec: 10 });
   },
 
   async deleteService(id) {

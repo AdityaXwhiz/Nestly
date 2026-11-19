@@ -10,6 +10,8 @@ import { monitorDlqs } from '../infrastructure/sqs/dlqTool.js';
 import { createNotificationConsumer } from './consumers/notificationConsumer.js';
 import { createProviderActionConsumer } from './consumers/providerActionConsumer.js';
 import { createAnalyticsConsumer } from './consumers/analyticsConsumer.js';
+import { createSearchIndexConsumer } from './consumers/searchIndexConsumer.js';
+import { ensureAliasesExist } from '../infrastructure/opensearch/setupIndices.js';
 import { logger } from '../middleware/requestLogger.js';
 import { env } from '../config/env.js';
 
@@ -295,6 +297,16 @@ export function startWorker({
     const analyticsConsumer = createAnalyticsConsumer(consumerOptions);
     analyticsConsumer.start();
     consumers.push(analyticsConsumer);
+  }
+
+  // Role 6: Search-Index Consumer
+  if (enabledRoles.has('search-index')) {
+    ensureAliasesExist().catch((err) =>
+      logger.warn({ err: err.message }, 'Failed to ensure OpenSearch aliases on worker start'),
+    );
+    const searchConsumer = createSearchIndexConsumer(consumerOptions);
+    searchConsumer.start();
+    consumers.push(searchConsumer);
   }
 
   let stopped = false;

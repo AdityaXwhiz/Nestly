@@ -1,5 +1,12 @@
 import { db } from '../../infrastructure/postgres.js';
 
+/**
+ * Escapes characters with special meaning in SQL LIKE patterns (_, %, \).
+ */
+export function escapeLikePattern(str) {
+  return str.replace(/[%_\\]/g, '\\$&');
+}
+
 export const servicesRepository = {
   async createService(
     {
@@ -23,7 +30,7 @@ export const servicesRepository = {
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id, provider_id, title, description, category, kind, price_minor,
-                currency, duration_minutes, capacity, status, created_at, updated_at
+                currency, duration_minutes, capacity, status, version, created_at, updated_at
     `;
     const result = await client.query(query, [
       providerId,
@@ -77,17 +84,29 @@ export const servicesRepository = {
       SET ${setClauses.join(', ')}
       WHERE id = $${paramIndex}
       RETURNING id, provider_id, title, description, category, kind, price_minor,
-                currency, duration_minutes, capacity, status, created_at, updated_at
+                currency, duration_minutes, capacity, status, version, created_at, updated_at
     `;
 
     const result = await client.query(query, values);
     return result.rows[0] || null;
   },
 
+  async bumpServiceVersion(id, client = db) {
+    const query = `
+      UPDATE services
+      SET updated_at = now()
+      WHERE id = $1
+      RETURNING id, provider_id, title, description, category, kind, price_minor,
+                currency, duration_minutes, capacity, status, version, created_at, updated_at
+    `;
+    const result = await client.query(query, [id]);
+    return result.rows[0] || null;
+  },
+
   async findById(id, client = db) {
     const query = `
       SELECT id, provider_id, title, description, category, kind, price_minor,
-             currency, duration_minutes, capacity, status, created_at, updated_at
+             currency, duration_minutes, capacity, status, version, created_at, updated_at
       FROM services
       WHERE id = $1
     `;
@@ -98,7 +117,7 @@ export const servicesRepository = {
   async findActiveById(id, client = db) {
     const query = `
       SELECT id, provider_id, title, description, category, kind, price_minor,
-             currency, duration_minutes, capacity, status, created_at, updated_at
+             currency, duration_minutes, capacity, status, version, created_at, updated_at
       FROM services
       WHERE id = $1 AND status = 'ACTIVE'
     `;
@@ -110,6 +129,13 @@ export const servicesRepository = {
     const conditions = ["status = 'ACTIVE'"];
     const values = [];
     let paramIndex = 1;
+
+    if (filters.q) {
+      const escaped = escapeLikePattern(filters.q.trim().toLowerCase());
+      conditions.push(`lower(title) LIKE $${paramIndex} || '%' ESCAPE '\\'`);
+      values.push(escaped);
+      paramIndex++;
+    }
 
     if (filters.category) {
       conditions.push(`category = $${paramIndex}`);
@@ -130,7 +156,7 @@ export const servicesRepository = {
 
     const query = `
       SELECT id, provider_id, title, description, category, kind, price_minor,
-             currency, duration_minutes, capacity, status, created_at, updated_at
+             currency, duration_minutes, capacity, status, version, created_at, updated_at
       FROM services
       WHERE ${conditions.join(' AND ')}
       ORDER BY created_at DESC, id DESC
@@ -145,6 +171,13 @@ export const servicesRepository = {
     const conditions = ["status = 'ACTIVE'"];
     const values = [];
     let paramIndex = 1;
+
+    if (filters.q) {
+      const escaped = escapeLikePattern(filters.q.trim().toLowerCase());
+      conditions.push(`lower(title) LIKE $${paramIndex} || '%' ESCAPE '\\'`);
+      values.push(escaped);
+      paramIndex++;
+    }
 
     if (filters.category) {
       conditions.push(`category = $${paramIndex}`);
