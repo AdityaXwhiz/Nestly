@@ -107,3 +107,19 @@ export const listPropertiesQuerySchema = z.object({
     .transform((val) => (val ? parseInt(val, 10) : undefined))
     .pipe(z.number().int().nonnegative().optional()),
 });
+
+export const imageUploadUrlSchema = z.object({
+  content_type: z.enum(['image/jpeg', 'image/png', 'image/webp'], {
+    errorMap: () => ({ message: 'content_type must be image/jpeg, image/png, or image/webp' }),
+  }),
+  size_bytes: z
+    .number({ invalid_type_error: 'size_bytes must be a number' })
+    .int('size_bytes must be an integer')
+    .positive('size_bytes must be greater than 0')
+    .max(5242880, 'size_bytes cannot exceed 5 MB (5242880 bytes)'),
+});
+
+export const imageIdParamSchema = z.object({
+  id: z.string().uuid('Invalid property ID format'),
+  imageId: z.string().uuid('Invalid image ID format'),
+});

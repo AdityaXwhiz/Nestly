@@ -44,6 +44,27 @@ services:
       timeout: 3s
       retries: 5
 
+  minio:
+    image: pgsty/minio:latest
+    container_name: nestly-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      MINIO_ROOT_USER: nestly_local_key
+      MINIO_ROOT_PASSWORD: nestly_local_secret
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   pg_data:
   redis_data:
+  minio_data:

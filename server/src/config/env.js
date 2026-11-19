@@ -145,13 +145,33 @@ const envSchema = z.object({
     .string()
     .url()
     .default('http://localhost:9324/000000000000/search-index'),
+
+  // S3 / MinIO (media storage)
+  S3_ENDPOINT: z
+    .string()
+    .url()
+    .optional(),
+
+  S3_BUCKET: z
+    .string()
+    .default('nestly-media'),
+
+  S3_FORCE_PATH_STYLE: z
+    .string()
+    .transform((v) => v === 'true' || v === '1')
+    .default('true'),
+
+  MEDIA_PUBLIC_BASE_URL: z
+    .string()
+    .url()
+    .default('http://localhost:9000/nestly-media'),
 }).transform((data) => ({
   ...data,
-  // AWS key defaults apply ONLY when SQS_ENDPOINT is set (local ElasticMQ)
+  // AWS key defaults apply ONLY when SQS_ENDPOINT or S3_ENDPOINT is set (local ElasticMQ / MinIO)
   AWS_ACCESS_KEY_ID:
-    data.AWS_ACCESS_KEY_ID || (data.SQS_ENDPOINT ? 'nestly_local_key' : undefined),
+    data.AWS_ACCESS_KEY_ID || (data.SQS_ENDPOINT || data.S3_ENDPOINT ? 'nestly_local_key' : undefined),
   AWS_SECRET_ACCESS_KEY:
-    data.AWS_SECRET_ACCESS_KEY || (data.SQS_ENDPOINT ? 'nestly_local_secret' : undefined),
+    data.AWS_SECRET_ACCESS_KEY || (data.SQS_ENDPOINT || data.S3_ENDPOINT ? 'nestly_local_secret' : undefined),
 }));
 
 const result = envSchema.safeParse(process.env);

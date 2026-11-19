@@ -11,6 +11,7 @@
     "mock-provider": "node src/infrastructure/payment/mockProvider.js",
     "worker": "node src/workers/index.js",
     "queues:setup": "node src/infrastructure/sqs/setupQueues.js",
+    "storage:setup": "node src/infrastructure/s3/setupStorage.js",
     "dlq:inspect": "node src/infrastructure/sqs/dlqTool.js inspect",
     "dlq:redrive": "node src/infrastructure/sqs/dlqTool.js redrive",
     "migrate:up": "node-pg-migrate up --envPath ../.env",
@@ -20,7 +21,9 @@
   "keywords": [],
   "license": "UNLICENSED",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1173.0",
     "@aws-sdk/client-sqs": "^3.1173.0",
+    "@aws-sdk/s3-request-presigner": "^3.1173.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",

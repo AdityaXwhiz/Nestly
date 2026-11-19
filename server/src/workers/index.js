@@ -5,6 +5,7 @@ import { sagaOrchestrator } from '../modules/orders/saga.js';
 import { reservationsService } from '../modules/reservations/service.js';
 import { paymentsService } from '../modules/payments/service.js';
 import { notificationsService } from '../modules/notifications/service.js';
+import { propertyImagesService } from '../modules/properties/imagesService.js';
 import { monitorDlqs } from '../infrastructure/sqs/dlqTool.js';
 import { createNotificationConsumer } from './consumers/notificationConsumer.js';
 import { createProviderActionConsumer } from './consumers/providerActionConsumer.js';
@@ -120,19 +121,26 @@ export async function runNotificationRetryTick({
 
 /**
  * 6. Cleanup tick (role: schedulers)
- * DB-only scheduler: deletes expired idempotency_keys and old published outbox rows
- * directly on the lock's client `tx` (Change #4).
+ * Deletes expired idempotency_keys, old published outbox rows,
+ * and sweeps orphaned PENDING images older than 24 hours (S3 object + DB row).
  */
 export async function runCleanupTick(
-  { retentionDays = env.OUTBOX_RETENTION_DAYS } = {},
+  {
+    retentionDays = env.OUTBOX_RETENTION_DAYS,
+    orphanedImageHours = 24,
+  } = {},
   client = null,
 ) {
   const executeCleanup = async (tx) => {
     const expiredKeysDeleted = await paymentsService.deleteExpiredIdempotencyKeys(tx);
     const oldOutboxDeleted = await outboxRepository.deleteOldPublished(retentionDays, tx);
+    const orphanedImagesDeleted = await propertyImagesService.sweepOrphanedPendingImages({
+      olderThanHours: orphanedImageHours,
+    });
     return {
       expiredKeysDeleted,
       oldOutboxDeleted,
+      orphanedImagesDeleted,
     };
   };
 

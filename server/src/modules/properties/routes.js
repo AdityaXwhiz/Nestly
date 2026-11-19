@@ -8,6 +8,8 @@ import {
   updatePropertySchema,
   listPropertiesQuerySchema,
   propertyIdParamSchema,
+  imageUploadUrlSchema,
+  imageIdParamSchema,
 } from './validation.js';
 
 const router = Router();
@@ -40,6 +42,31 @@ router.put(
   authZ('HOST', 'ADMIN'),
   validate({ params: propertyIdParamSchema, body: updatePropertySchema }),
   propertiesController.updateProperty,
+);
+
+// Image routes (HOST own property, ADMIN)
+router.post(
+  '/:id/images/upload-url',
+  authN,
+  authZ('HOST', 'ADMIN'),
+  validate({ params: propertyIdParamSchema, body: imageUploadUrlSchema }),
+  propertiesController.requestImageUploadUrl,
+);
+
+router.post(
+  '/:id/images/:imageId/confirm',
+  authN,
+  authZ('HOST', 'ADMIN'),
+  validate({ params: imageIdParamSchema }),
+  propertiesController.confirmImage,
+);
+
+router.delete(
+  '/:id/images/:imageId',
+  authN,
+  authZ('HOST', 'ADMIN'),
+  validate({ params: imageIdParamSchema }),
+  propertiesController.deleteImage,
 );
 
 export default router;

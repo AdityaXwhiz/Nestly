@@ -1,4 +1,6 @@
 import { propertiesRepository } from './repository.js';
+import { propertyImagesRepository } from './imagesRepository.js';
+import { formatImage } from './imagesService.js';
 import { withTx } from '../../infrastructure/postgres.js';
 import { remember, del, generateSearchCacheKey } from '../../infrastructure/redis/cache.js';
 import { AppError } from '../../errors/AppError.js';
@@ -29,6 +31,7 @@ export const propertiesService = {
       return {
         ...property,
         amenities,
+        images: [],
       };
     });
   },
@@ -67,9 +70,13 @@ export const propertiesService = {
         amenities = amenityMap.get(id) || [];
       }
 
+      const imageRows = await propertyImagesRepository.listReadyByPropertyId(id, tx);
+      const images = imageRows.map(formatImage);
+
       return {
         ...updated,
         amenities,
+        images,
       };
     });
 
@@ -86,12 +93,17 @@ export const propertiesService = {
         throw new AppError('PROPERTY_NOT_FOUND', 404, 'Property not found');
       }
 
-      const amenityMap = await propertiesRepository.getAmenitiesByPropertyIds([property.id]);
+      const [amenityMap, imageRows] = await Promise.all([
+        propertiesRepository.getAmenitiesByPropertyIds([property.id]),
+        propertyImagesRepository.listReadyByPropertyId(property.id),
+      ]);
       const amenities = amenityMap.get(property.id) || [];
+      const images = imageRows.map(formatImage);
 
       return {
         ...property,
         amenities,
+        images,
       };
     };
 
@@ -124,11 +136,15 @@ export const propertiesService = {
         ]);
 
         const propertyIds = properties.map((p) => p.id);
-        const amenityMap = await propertiesRepository.getAmenitiesByPropertyIds(propertyIds);
+        const [amenityMap, imageMap] = await Promise.all([
+          propertiesRepository.getAmenitiesByPropertyIds(propertyIds),
+          propertyImagesRepository.getReadyImagesByPropertyIds(propertyIds),
+        ]);
 
         const propertiesWithAmenities = properties.map((p) => ({
           ...p,
           amenities: amenityMap.get(p.id) || [],
+          images: (imageMap.get(p.id) || []).map(formatImage),
         }));
 
         return {
