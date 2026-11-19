@@ -1,4 +1,5 @@
 import { ordersRepository } from './repository.js';
+import { sagaOrchestrator } from './saga.js';
 import { propertiesService } from '../properties/service.js';
 import { servicesService } from '../services/service.js';
 import { reservationsService } from '../reservations/service.js';
@@ -166,104 +167,33 @@ export const ordersService = {
   },
 
   /**
-   * Place an order on hold (checkout initiation).
-   * Enforces customer ownership and PENDING status.
-   * Holds items in fixed order (PROPERTY first, then SERVICES).
-   * Runs in-code compensation (releasing all held items) on ANY failure path,
-   * including when the final guarded status update affects zero rows.
+   * Place an order on hold via persisted Saga Orchestrator.
+   * Steps: 1 hold property, 2 hold each service, with backward compensation on failure.
    */
   async holdOrder(id, user) {
-    if (user.role !== 'CUSTOMER') {
-      throw new AppError('FORBIDDEN', 403, 'Only customers may place orders on hold');
-    }
+    return sagaOrchestrator.executeHold(id, user);
+  },
 
-    const order = await ordersRepository.findById(id);
-    if (!order) {
-      throw new AppError('ORDER_NOT_FOUND', 404, 'Order not found');
-    }
+  // ------------------ Saga Hooks for Payments Module (Change #6) ------------------
 
-    if (order.user_id !== user.id) {
-      throw new AppError('FORBIDDEN', 403, 'You do not own this order');
-    }
+  async onPaymentInitiated(orderId, client = undefined) {
+    return sagaOrchestrator.onPaymentInitiated(orderId, client);
+  },
 
-    if (order.status !== 'PENDING') {
-      throw new AppError('ORDER_NOT_HOLDABLE', 409, 'Only PENDING orders can be placed on hold');
-    }
+  async onPaymentSucceededBeforeConfirm(orderId, client = undefined) {
+    return sagaOrchestrator.onPaymentSucceededBeforeConfirm(orderId, client);
+  },
 
-    const items = await ordersRepository.findItemsByOrderId(order.id);
-    const heldReservations = [];
-    let currentItem = null;
+  async onBookingConfirmed(orderId, client = undefined) {
+    return sagaOrchestrator.onBookingConfirmed(orderId, client);
+  },
 
-    try {
-      for (const item of items) {
-        currentItem = item;
-        const holdPayload = {
-          order_item_id: item.id,
-          resource_type: item.resource_type,
-          resource_id: item.resource_id,
-          quantity: item.quantity,
-          slot: item.slot,
-        };
-        const reservation = await reservationsService.hold(holdPayload, order.during);
-        heldReservations.push(reservation);
-      }
+  async onBookingRefundRequired(orderId, client = undefined) {
+    return sagaOrchestrator.onBookingRefundRequired(orderId, client);
+  },
 
-      // Earliest hold_expires_at among order's reservations
-      const earliestExpiry = new Date(
-        Math.min(...heldReservations.map((r) => new Date(r.hold_expires_at).getTime())),
-      );
-
-      // Guarded update: transition from PENDING to HELD
-      const updatedOrder = await ordersRepository.updateStatusGuarded(
-        order.id,
-        'PENDING',
-        'HELD',
-        { holdExpiresAt: earliestExpiry },
-      );
-
-      if (!updatedOrder) {
-        throw new AppError('ORDER_NOT_HOLDABLE', 409, 'Order was already modified or is no longer in PENDING state');
-      }
-
-      return {
-        order_id: updatedOrder.id,
-        status: updatedOrder.status,
-        hold_expires_at: updatedOrder.hold_expires_at,
-      };
-    } catch (err) {
-      // In-code compensation: release all holds made so far
-      for (const r of heldReservations.slice().reverse()) {
-        try {
-          await reservationsService.release(r.id);
-        } catch (compErr) {
-          logger.error(
-            { err: compErr.message, reservationId: r.id },
-            'Compensation release failed',
-          );
-        }
-      }
-
-      if (err instanceof AppError) {
-        if (currentItem && !err.details?.resource_id) {
-          err.details = {
-            ...err.details,
-            resource_id: currentItem.resource_id,
-            resource_type: currentItem.resource_type,
-          };
-        }
-        throw err;
-      }
-
-      throw new AppError(
-        'RESOURCE_CONFLICT',
-        409,
-        err.message || 'One or more items could not be held',
-        {
-          resource_id: currentItem?.resource_id,
-          resource_type: currentItem?.resource_type,
-        },
-      );
-    }
+  async onPaymentFailed(orderId, client = undefined) {
+    return sagaOrchestrator.onPaymentFailed(orderId, client);
   },
 
   /**

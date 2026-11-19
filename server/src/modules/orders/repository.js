@@ -75,6 +75,14 @@ export const ordersRepository = {
   },
 
   /**
+   * Find an order by its primary key ID and lock the row for update.
+   */
+  async findByIdForUpdate(id, client = db) {
+    const res = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE;', [id]);
+    return res.rows[0] || null;
+  },
+
+  /**
    * Find all items belonging to an order, ordered deterministically
    * (PROPERTY first, then SERVICE).
    */

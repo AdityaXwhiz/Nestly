@@ -157,6 +157,22 @@ export const reservationsRepository = {
   },
 
   /**
+   * Find an active reservation for an order item (idempotency check).
+   */
+  async findActiveByOrderItemId(orderItemId, client = db) {
+    const query = `
+      SELECT id, order_item_id, resource_type, resource_id, during,
+             status, hold_expires_at, is_exclusive, quantity, slot, created_at
+      FROM reservations
+      WHERE order_item_id = $1
+        AND status IN ('HELD', 'PAYMENT_PENDING', 'CONFIRMED')
+      LIMIT 1;
+    `;
+    const result = await client.query(query, [orderItemId]);
+    return result.rows[0] || null;
+  },
+
+  /**
    * Find all reservations linked to order items of an order.
    */
   async findByOrderId(orderId, client = db) {

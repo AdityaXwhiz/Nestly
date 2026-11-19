@@ -1,7 +1,7 @@
 import { reservationsRepository } from './repository.js';
 import { servicesRepository } from '../services/repository.js';
 import { outboxRepository } from '../outbox/repository.js';
-import { withTx } from '../../infrastructure/postgres.js';
+import { withTx, db } from '../../infrastructure/postgres.js';
 import { acquire, release } from '../../infrastructure/redis/lock.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../../errors/AppError.js';
@@ -20,22 +20,31 @@ export const reservationsService = {
 
     let lock;
     const isCapacityService = item.resource_type === 'SERVICE' && item.slot;
+    const canRetryLock = isCapacityService || Boolean(item.order_item_id);
 
-    if (isCapacityService) {
-      // For capacity services, contenders serialize briefly through the lock
-      // to increment capacity without colliding on DB row locks
+    if (canRetryLock) {
+      // For capacity services and order items, contenders serialize briefly through the lock
+      // to increment capacity without colliding on DB row locks, or check for existing holds
       const maxRetries = 10;
       for (let i = 0; i <= maxRetries; i++) {
         lock = await acquire(lockKey, 5000);
         if (lock.status !== 'busy' || i === maxRetries) break;
+        if (item.order_item_id) {
+          const existing = await reservationsRepository.findActiveByOrderItemId(item.order_item_id, db);
+          if (existing) return existing;
+        }
         await new Promise((resolve) => setTimeout(resolve, 10 + Math.random() * 15));
       }
     } else {
-      // For exclusive resources (properties & exclusive services): immediate fast-reject on busy
+      // For exclusive resources without order_item_id: immediate fast-reject on busy
       lock = await acquire(lockKey, 5000);
     }
 
     if (lock.status === 'busy') {
+      if (item.order_item_id) {
+        const existing = await reservationsRepository.findActiveByOrderItemId(item.order_item_id, db);
+        if (existing) return existing;
+      }
       throw new AppError(
         'RESOURCE_BUSY',
         409,
@@ -45,6 +54,14 @@ export const reservationsService = {
 
     try {
       return await withTx(async (tx) => {
+      // 0. Idempotency check: if order_item_id already has an active reservation, return it
+      if (item.order_item_id) {
+        const existing = await reservationsRepository.findActiveByOrderItemId(item.order_item_id, tx);
+        if (existing) {
+          return existing;
+        }
+      }
+
       // 1. Expire stale holds for this resource and give back capacity for capacity services
       const staleHolds = await reservationsRepository.expireStaleHolds(item.resource_id, tx);
       for (const stale of staleHolds) {
@@ -124,12 +141,14 @@ export const reservationsService = {
           tx,
         );
       } catch (err) {
-        if (err.code === '23P01' || err.code === '40P01' || err.code === '40001') {
-          throw new AppError(
+        if (err.code === '23P01' || err.code === '40P01' || err.code === '40001' || err.code === '23505') {
+          const conflictErr = new AppError(
             'RESOURCE_CONFLICT',
             409,
             'Resource is no longer available for this time range',
           );
+          conflictErr.originalCode = err.code;
+          throw conflictErr;
         }
         throw err;
       }
@@ -154,6 +173,14 @@ export const reservationsService = {
 
       return reservation;
     });
+    } catch (err) {
+      if (item.order_item_id && (err.originalCode === '23505' || err.originalCode === '23P01')) {
+        const existing = await reservationsRepository.findActiveByOrderItemId(item.order_item_id, db);
+        if (existing) {
+          return existing;
+        }
+      }
+      throw err;
     } finally {
       if (lock.token) {
         await release(lockKey, lock.token);

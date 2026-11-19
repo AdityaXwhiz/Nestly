@@ -82,6 +82,12 @@ const envSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().nonnegative())
     .default('60'),
+
+  SAGA_STALE_SECONDS: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().positive())
+    .default('60'),
 });
 
 const result = envSchema.safeParse(process.env);

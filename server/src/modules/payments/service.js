@@ -138,6 +138,9 @@ export const paymentsService = {
         tx,
       );
 
+      // Saga Hook: Transition saga to PAYING (step 3)
+      await ordersService.onPaymentInitiated(order.id, tx);
+
       return { isReplay: false, payment: createdPayment };
     });
 
@@ -316,6 +319,9 @@ export const paymentsService = {
       }
 
       if (eventStatus === 'SUCCESS') {
+        // Saga Hook: Transition saga to CONFIRMING (step 4)
+        await ordersService.onPaymentSucceededBeforeConfirm(payment.order_id, tx);
+
         // Attempt to confirm reservations
         let confirmError = null;
         try {
@@ -340,6 +346,7 @@ export const paymentsService = {
 
           await reservationsService.releaseOrderReservations(payment.order_id, tx);
           await ordersService.updateOrderStatus(payment.order_id, ['HELD'], 'FAILED', tx);
+          await ordersService.onBookingRefundRequired(payment.order_id, tx);
           await paymentsRepository.updateStatusGuarded(
             payment.id,
             ['CREATED', 'PENDING', 'PROCESSING'],
@@ -367,6 +374,7 @@ export const paymentsService = {
         } else {
           // Confirm succeeded: complete booking
           await ordersService.updateOrderStatus(payment.order_id, ['HELD'], 'CONFIRMED', tx);
+          await ordersService.onBookingConfirmed(payment.order_id, tx);
           await paymentsRepository.updateStatusGuarded(
             payment.id,
             ['CREATED', 'PENDING', 'PROCESSING'],
@@ -405,6 +413,7 @@ export const paymentsService = {
         // Payment FAILED
         await reservationsService.releaseOrderReservations(payment.order_id, tx);
         await ordersService.updateOrderStatus(payment.order_id, ['HELD'], 'FAILED', tx);
+        await ordersService.onPaymentFailed(payment.order_id, tx);
         await paymentsRepository.updateStatusGuarded(
           payment.id,
           ['CREATED', 'PENDING', 'PROCESSING'],
