@@ -2,6 +2,7 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 
+import { env } from './config/env.js';
 import { requestId } from './middleware/requestId.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { authN } from './middleware/authN.js';
@@ -25,7 +26,22 @@ const app = express();
 
 // --------------- Global middleware ---------------
 app.use(helmet());
-app.use(cors());
+
+const allowedOrigins = new Set(env.CORS_ORIGINS);
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.has(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key'],
+    exposedHeaders: ['X-Request-Id', 'Retry-After'],
+  }),
+);
 app.use(
   express.json({
     verify: (req, _res, buf) => {

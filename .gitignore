@@ -1,8 +1,13 @@
 # Dependencies
 node_modules/
+dist/
 
 # Environment
 .env
+.env.local
+.env.*.local
+client/.env
+client/.env.local
 
 # Docker volumes
 volumes/

@@ -18,6 +18,11 @@ const envSchema = z.object({
     .pipe(z.number().int().min(1).max(65535))
     .default('3000'),
 
+  CORS_ORIGINS: z
+    .string()
+    .default('http://localhost:5173,http://127.0.0.1:5173')
+    .transform((val) => val.split(',').map((s) => s.trim()).filter(Boolean)),
+
   DATABASE_URL: z
     .string()
     .url()
