@@ -627,4 +627,17 @@ export const paymentsService = {
 
     return { reconciled, resumed, refunded };
   },
+
+  /**
+   * Internal service method for cross-module lookup (Change #2).
+   */
+  async getLatestPaymentForOrder(orderId, client = undefined) {
+    const payments = await paymentsRepository.findByOrderId(orderId, client);
+    if (!payments || payments.length === 0) return null;
+    const latest = payments[0];
+    return {
+      id: latest.id,
+      status: latest.status,
+    };
+  },
 };

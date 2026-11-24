@@ -42,6 +42,15 @@ export const propertiesController = {
     }
   },
 
+  async listMyProperties(req, res, next) {
+    try {
+      const result = await propertiesService.listMyProperties(req.user.id);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async requestImageUploadUrl(req, res, next) {
     try {
       const result = await propertyImagesService.requestUploadUrl(

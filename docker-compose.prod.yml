@@ -1,0 +1,270 @@
+name: nestly-prod
+
+# Shared server environment variables (all secrets injected from env / .env file; zero literals here)
+x-server-env: &server-env
+  NODE_ENV: production
+  PORT: 3000
+  TRUST_PROXY: ${TRUST_PROXY:-1}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-nestly}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-nestly}
+  DB_POOL_MAX: ${DB_POOL_MAX:-10}
+  REDIS_URL: redis://redis:6379
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET must be set}
+  JWT_TTL: ${JWT_TTL:-15m}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-nestly-api}
+  RATE_LIMIT_AUTH_MAX: ${RATE_LIMIT_AUTH_MAX:-10}
+  RATE_LIMIT_AUTH_WINDOW_SEC: ${RATE_LIMIT_AUTH_WINDOW_SEC:-60}
+  HOLD_TTL_SECONDS: ${HOLD_TTL_SECONDS:-600}
+  PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+  PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?PAYMENT_WEBHOOK_SECRET must be set}
+  PAYMENT_PROVIDER_URL: http://mock-provider:3001
+  PAYMENT_MIN_HOLD_SECONDS: ${PAYMENT_MIN_HOLD_SECONDS:-60}
+  SAGA_STALE_SECONDS: ${SAGA_STALE_SECONDS:-60}
+  OUTBOX_RETENTION_DAYS: ${OUTBOX_RETENTION_DAYS:-7}
+  NOTIFICATION_RETRY_MINUTES: ${NOTIFICATION_RETRY_MINUTES:-5}
+  PUBLISHER: sqs
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  SQS_ENDPOINT: http://elasticmq:9324
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set}
+  SQS_QUEUE_URL_NOTIFICATIONS: http://elasticmq:9324/000000000000/notifications
+  SQS_QUEUE_URL_PROVIDER_ACTIONS: http://elasticmq:9324/000000000000/provider-actions
+  SQS_QUEUE_URL_ANALYTICS: http://elasticmq:9324/000000000000/analytics
+  SQS_QUEUE_URL_SEARCH_INDEX: http://elasticmq:9324/000000000000/search-index
+  S3_ENDPOINT: http://minio:9000
+  # Public S3 endpoint used strictly for browser presigned PUT URLs (Change #1)
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+  S3_BUCKET: ${S3_BUCKET:-nestly-media}
+  S3_FORCE_PATH_STYLE: "true"
+  MEDIA_PUBLIC_BASE_URL: ${MEDIA_PUBLIC_BASE_URL:-http://localhost:9000/nestly-media}
+  OPENSEARCH_ENDPOINT: http://opensearch:9200
+  OPENSEARCH_INDEX_PREFIX: ${OPENSEARCH_INDEX_PREFIX:-nestly}
+
+services:
+  # --------------- Infrastructure Services ---------------
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nestly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-nestly}
+    volumes:
+      - prod_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nestly} -d ${POSTGRES_DB:-nestly}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - prod_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.12
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9324/?Action=ListQueues"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: pgsty/minio@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    # Publish MinIO API port so host browsers can execute presigned PUT uploads and read
+    # confirmed property images directly without routing file bytes through the API (Change #1).
+    ports:
+      - "${MINIO_PUBLIC_PORT:-9000}:9000"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set}
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    volumes:
+      - prod_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    restart: unless-stopped
+    mem_limit: 1g
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      # Security plugin disabled for LOCAL stack only; AWS OpenSearch uses VPC private subnets and IAM.
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    volumes:
+      - prod_opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health?local=true"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  # --------------- One-Off Init Jobs ---------------
+  migrate:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: "no"
+    command: ["node", "node_modules/node-pg-migrate/bin/node-pg-migrate.js", "up"]
+    environment:
+      <<: *server-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  init:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: "no"
+    command: ["node", "src/infrastructure/init.js"]
+    environment:
+      <<: *server-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+
+  # --------------- Application Services ---------------
+  mock-provider:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    command: ["node", "src/infrastructure/payment/mockProvider.js"]
+    environment:
+      <<: *server-env
+      PAYMENT_MOCK_PORT: 3001
+      WEBHOOK_TARGET_URL: http://api:3000/api/v1/payments/webhook
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    command: ["node", "src/server.js"]
+    environment:
+      <<: *server-env
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-provider:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker-scheduler:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    command: ["node", "src/workers/index.js"]
+    environment:
+      <<: *server-env
+      WORKER_ROLES: publisher,schedulers
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      mock-provider:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('node:fs');const age=Date.now()-fs.statSync('/tmp/worker-heartbeat').mtimeMs;process.exit(age<35000?0:1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker-consumer:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    command: ["node", "src/workers/index.js"]
+    environment:
+      <<: *server-env
+      WORKER_ROLES: notification,provider-actions,analytics,search-index
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      mock-provider:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('node:fs');const age=Date.now()-fs.statSync('/tmp/worker-heartbeat').mtimeMs;process.exit(age<35000?0:1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: /api/v1
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  prod_pg_data:
+  prod_redis_data:
+  prod_minio_data:
+  prod_opensearch_data:

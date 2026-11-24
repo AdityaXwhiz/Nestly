@@ -33,6 +33,43 @@ export function Header() {
           >
             Services
           </NavLink>
+
+          {isAuthenticated && (
+            <>
+              {user.role === 'CUSTOMER' && (
+                <NavLink
+                  to="/orders"
+                  className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                >
+                  My Bookings
+                </NavLink>
+              )}
+              {user.role === 'HOST' && (
+                <NavLink
+                  to="/host/properties"
+                  className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                >
+                  My Properties
+                </NavLink>
+              )}
+              {user.role === 'PROVIDER' && (
+                <NavLink
+                  to="/provider/services"
+                  className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                >
+                  My Services
+                </NavLink>
+              )}
+              {user.role === 'ADMIN' && (
+                <NavLink
+                  to="/orders"
+                  className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                >
+                  All Orders
+                </NavLink>
+              )}
+            </>
+          )}
         </nav>
 
         <div className="header-auth">

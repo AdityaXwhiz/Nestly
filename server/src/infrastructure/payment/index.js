@@ -101,6 +101,9 @@ export const paymentProvider = {
     return activeProvider.verifyWebhook(rawBody, headers);
   },
   setProvider(provider) {
+    if (env.NODE_ENV === 'production') {
+      throw new Error('setProvider test hook is disabled in production');
+    }
     activeProvider = provider;
   },
   getProvider() {

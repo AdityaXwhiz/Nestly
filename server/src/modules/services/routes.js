@@ -19,6 +19,14 @@ router.get(
   servicesController.listServices,
 );
 
+// Provider own services
+router.get(
+  '/mine',
+  authN,
+  authZ('PROVIDER'),
+  servicesController.listMyServices,
+);
+
 router.get(
   '/:id',
   validate({ params: serviceIdParamSchema }),

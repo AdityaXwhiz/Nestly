@@ -3,6 +3,7 @@ import { sagaOrchestrator } from './saga.js';
 import { propertiesService } from '../properties/service.js';
 import { servicesService } from '../services/service.js';
 import { reservationsService } from '../reservations/service.js';
+import { paymentsService } from '../payments/service.js';
 import { withTx } from '../../infrastructure/postgres.js';
 import { AppError } from '../../errors/AppError.js';
 import { logger } from '../../middleware/requestLogger.js';
@@ -128,7 +129,7 @@ export const ordersService = {
     const currency = items[0].currency;
 
     // 5. Atomic single transaction insert
-    return withTx(async (tx) => {
+    const createdOrder = await withTx(async (tx) => {
       return ordersRepository.createOrderWithItems(
         {
           userId: user.id,
@@ -142,12 +143,18 @@ export const ordersService = {
         tx,
       );
     });
+
+    return {
+      ...createdOrder,
+      server_time: new Date().toISOString(),
+    };
   },
 
   /**
    * Get an order by ID.
    * Enforces customer ownership or ADMIN access.
    * Reads from orders and order_items only; never joins live catalog tables (BR-04).
+   * Includes latest payment status and server_time (Change #1 & Change #2).
    */
   async getOrderById(id, user) {
     const order = await ordersRepository.findById(id);
@@ -160,9 +167,64 @@ export const ordersService = {
     }
 
     const items = await ordersRepository.findItemsByOrderId(order.id);
+    let payment = null;
+    try {
+      payment = await paymentsService.getLatestPaymentForOrder(order.id);
+    } catch {
+      // payments module optional or error
+    }
+
     return {
       ...order,
       items,
+      payment,
+      server_time: new Date().toISOString(),
+    };
+  },
+
+  /**
+   * List orders paginated, newest first.
+   * CUSTOMER sees own orders only; ADMIN sees all orders.
+   */
+  async listOrders(query = {}, user) {
+    const page = Number(query.page || 1);
+    const limit = Math.min(Number(query.limit || 20), 50);
+    const offset = (page - 1) * limit;
+
+    const filterUserId = user.role === 'ADMIN' ? null : user.id;
+
+    const { orders, total } = await ordersRepository.listOrders({
+      userId: filterUserId,
+      limit,
+      offset,
+    });
+
+    const enrichedOrders = await Promise.all(
+      orders.map(async (o) => {
+        const items = await ordersRepository.findItemsByOrderId(o.id);
+        let payment = null;
+        try {
+          payment = await paymentsService.getLatestPaymentForOrder(o.id);
+        } catch {
+          // ignore
+        }
+        return {
+          ...o,
+          items,
+          payment,
+        };
+      }),
+    );
+
+    return {
+      orders: enrichedOrders,
+      pagination: {
+        page,
+        limit,
+        total,
+        has_more: offset + orders.length < total,
+      },
+      server_time: new Date().toISOString(),
     };
   },
 

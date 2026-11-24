@@ -194,6 +194,7 @@ export const sagaOrchestrator = {
         order_id: updatedOrder.id,
         status: updatedOrder.status,
         hold_expires_at: updatedOrder.hold_expires_at,
+        server_time: new Date().toISOString(),
       };
     } catch (err) {
       if (err.isSimulatedCrash) {

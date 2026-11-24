@@ -176,6 +176,15 @@ export const servicesService = {
     return servicesRepository.deleteById(id);
   },
 
+  async listMyServices(user) {
+    const provider = await providersService.getProviderByUserId(user.id);
+    if (!provider) {
+      return { services: [] };
+    }
+    const services = await servicesRepository.findByProviderId(provider.id);
+    return { services };
+  },
+
   /**
    * Internal cross-module lookup (does not filter out INACTIVE services).
    */

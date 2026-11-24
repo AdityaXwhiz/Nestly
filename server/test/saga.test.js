@@ -184,7 +184,8 @@ describe('Saga Orchestrator, Recovery and Outbox Test Suite', () => {
 
     const services = [{ service_id: testService.id, quantity: 1 }];
     if (includeLimited) {
-      services.push({ service_id: limitedService.id, quantity: 1, slot: `slot_${daysOffset}` });
+      const slot = start.slice(0, 10);
+      services.push({ service_id: limitedService.id, quantity: 1, slot });
     }
 
     const orderRes = await request(app)
@@ -265,7 +266,7 @@ describe('Saga Orchestrator, Recovery and Outbox Test Suite', () => {
 
     it('service hold fails: saga compensates, no active reservations remain, order stays PENDING, and customer can retry hold successfully', async () => {
       const daysOffset = 20;
-      const slot = `slot_${daysOffset}`;
+      const slot = new Date(Date.now() + daysOffset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
       // Pre-fill capacity slot so limitedService hold fails
       await pool.query(

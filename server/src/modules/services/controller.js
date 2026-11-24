@@ -40,4 +40,13 @@ export const servicesController = {
       next(err);
     }
   },
+
+  async listMyServices(req, res, next) {
+    try {
+      const result = await servicesService.listMyServices(req.user);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
 };

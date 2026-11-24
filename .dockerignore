@@ -1,0 +1,16 @@
+.git
+.github
+docs
+load-tests
+volumes
+node_modules
+**/node_modules
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!client/.env.example
+*.log
+.DS_Store
+client/dist

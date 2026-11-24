@@ -568,7 +568,7 @@ describe('Step 11B: OpenSearch Search Engine Test Suite', () => {
       });
 
       // Search endpoint returns indicative: true
-      const searchRes = await request(app).get('/api/v1/search/properties?location=udaipur');
+      const searchRes = await request(app).get('/api/v1/search/properties?q=Lakeside&location=udaipur&limit=50');
       assert.equal(searchRes.status, 200);
       assert.equal(searchRes.body.indicative, true);
       assert.ok(searchRes.body.properties.some((p) => p.id === prop.id));

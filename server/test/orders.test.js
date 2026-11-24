@@ -166,7 +166,7 @@ describe('Orders and Price Snapshots Test Suite', () => {
           guest_count: 25,
           services: [
             { service_id: exclusiveService.id, quantity: 1 },
-            { service_id: capacityService.id, quantity: 2, slot: '2026-12-20-dinner' },
+            { service_id: capacityService.id, quantity: 2, slot: '2026-12-21' },
           ],
         });
 
@@ -203,7 +203,7 @@ describe('Orders and Price Snapshots Test Suite', () => {
       assert.ok(caterItem);
       assert.equal(caterItem.unit_price_minor, 200000);
       assert.equal(caterItem.quantity, 2);
-      assert.equal(caterItem.slot, '2026-12-20-dinner');
+      assert.equal(caterItem.slot, '2026-12-21');
       assert.equal(caterItem.pricing_unit, 'PER_UNIT');
     });
 
@@ -529,7 +529,7 @@ describe('Orders and Price Snapshots Test Suite', () => {
       createdServiceIds.push(limitedService.id);
 
       // 2. Pre-fill the only available slot for this service
-      const slot = '2026-12-23-solo';
+      const slot = '2026-12-23';
       await pool.query(
         `INSERT INTO service_capacity (service_id, slot, capacity, reserved)
          VALUES ($1, $2, 1, 1)

@@ -19,6 +19,15 @@ export const ordersController = {
     }
   },
 
+  async listOrders(req, res, next) {
+    try {
+      const result = await ordersService.listOrders(req.query, req.user);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async holdOrder(req, res, next) {
     try {
       const result = await ordersService.holdOrder(req.params.id, req.user);

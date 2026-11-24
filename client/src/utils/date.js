@@ -54,11 +54,34 @@ export function formatDateTime(isoString) {
 }
 
 /**
- * Formats a date range [start, end].
+ * Parses either { start, end } or Postgres tstzrange string "[2026-11-25 18:30:00+00,2026-11-27 18:29:59.999+00)".
  */
-export function formatDateRange(startIso, endIso) {
-  if (!startIso || !endIso) return '—';
-  return `${formatDate(startIso)} – ${formatDate(endIso)}`;
+export function parseOrderDuring(during) {
+  if (!during) return { start: null, end: null };
+  if (typeof during === 'object') {
+    return { start: during.start || null, end: during.end || null };
+  }
+  if (typeof during === 'string') {
+    const cleaned = during.replace(/^[[(]/, '').replace(/[)\]]$/, '').replace(/"/g, '');
+    const parts = cleaned.split(',');
+    if (parts.length === 2) {
+      return { start: parts[0].trim(), end: parts[1].trim() };
+    }
+  }
+  return { start: null, end: null };
+}
+
+/**
+ * Formats a date range [start, end], or a tstzrange / { start, end } object if a single arg is passed.
+ */
+export function formatDateRange(startOrRange, endIso) {
+  if (endIso !== undefined) {
+    if (!startOrRange || !endIso) return '—';
+    return `${formatDate(startOrRange)} – ${formatDate(endIso)}`;
+  }
+  const { start, end } = parseOrderDuring(startOrRange);
+  if (!start || !end) return '—';
+  return `${formatDate(start)} – ${formatDate(end)}`;
 }
 
 /**
@@ -85,3 +108,26 @@ export function toIsoWithLocalOffset(dateStr, isEndOfDay = false) {
   const date = new Date(year, month - 1, day, isEndOfDay ? 23 : 0, isEndOfDay ? 59 : 0, isEndOfDay ? 59 : 0, isEndOfDay ? 999 : 0);
   return date.toISOString();
 }
+
+/**
+ * Returns an array of YYYY-MM-DD strings for every day within [startDate, endDate] inclusive.
+ * Used for service slot selection within booking dates (Change #4).
+ * @param {string} startStr - "YYYY-MM-DD"
+ * @param {string} endStr - "YYYY-MM-DD"
+ * @returns {string[]}
+ */
+export function getDatesInRange(startStr, endStr) {
+  if (!startStr || !endStr) return [];
+  const dates = [];
+  const [sYear, sMonth, sDay] = startStr.split('-').map(Number);
+  const [eYear, eMonth, eDay] = endStr.split('-').map(Number);
+  const current = new Date(sYear, sMonth - 1, sDay);
+  const end = new Date(eYear, eMonth - 1, eDay);
+
+  while (current <= end) {
+    dates.push(toInputDateFormat(current));
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
+}
+

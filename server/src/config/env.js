@@ -18,6 +18,14 @@ const envSchema = z.object({
     .pipe(z.number().int().min(1).max(65535))
     .default('3000'),
 
+  TRUST_PROXY: z
+    .string()
+    .default('false'),
+
+  ENABLE_TEST_HOOKS: z
+    .string()
+    .optional(),
+
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:5173,http://127.0.0.1:5173')
@@ -76,6 +84,10 @@ const envSchema = z.object({
   PAYMENT_WEBHOOK_SECRET: z
     .string()
     .min(32, 'PAYMENT_WEBHOOK_SECRET must be at least 32 characters'),
+
+  PAYMENT_PROVIDER: z
+    .enum(['mock', 'stripe', 'razorpay'])
+    .optional(),
 
   PAYMENT_PROVIDER_URL: z
     .string()
@@ -157,6 +169,12 @@ const envSchema = z.object({
     .url()
     .optional(),
 
+  // Browser-facing S3 endpoint used strictly for generating presigned PUT URLs (Change #1)
+  S3_PUBLIC_ENDPOINT: z
+    .string()
+    .url()
+    .optional(),
+
   S3_BUCKET: z
     .string()
     .default('nestly-media'),
@@ -180,16 +198,82 @@ const envSchema = z.object({
   OPENSEARCH_INDEX_PREFIX: z
     .string()
     .default('nestly'),
+}).superRefine((data, ctx) => {
+  if (data.NODE_ENV === 'production') {
+    const isWeakSecret = (val) => {
+      const lower = val.toLowerCase();
+      const forbiddenTokens = ['replace_with', 'development', 'changeme', 'nestly_dev', 'default', 'example', 'secret'];
+      if (forbiddenTokens.some((token) => lower.includes(token))) return true;
+      if (new Set(val).size < 8) return true;
+      return false;
+    };
+
+    if (isWeakSecret(data.JWT_ACCESS_SECRET)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_ACCESS_SECRET'],
+        message: 'Refusing to start in production with weak or default JWT_ACCESS_SECRET',
+      });
+    }
+
+    if (isWeakSecret(data.PAYMENT_WEBHOOK_SECRET)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PAYMENT_WEBHOOK_SECRET'],
+        message: 'Refusing to start in production with weak or default PAYMENT_WEBHOOK_SECRET',
+      });
+    }
+
+    if (data.JWT_ACCESS_SECRET === data.PAYMENT_WEBHOOK_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PAYMENT_WEBHOOK_SECRET'],
+        message: 'JWT_ACCESS_SECRET and PAYMENT_WEBHOOK_SECRET must be distinct in production',
+      });
+    }
+
+    if (data.ENABLE_TEST_HOOKS === 'true') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ENABLE_TEST_HOOKS'],
+        message: 'Refusing to start in production with ENABLE_TEST_HOOKS enabled',
+      });
+    }
+
+    if (!data.PAYMENT_PROVIDER) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PAYMENT_PROVIDER'],
+        message: 'PAYMENT_PROVIDER must be explicitly configured in production (set PAYMENT_PROVIDER=mock explicitly if running local prod stack)',
+      });
+    }
+
+    if ((data.SQS_ENDPOINT || data.S3_ENDPOINT) && (!data.AWS_ACCESS_KEY_ID || !data.AWS_SECRET_ACCESS_KEY)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AWS_ACCESS_KEY_ID'],
+        message: 'AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be explicitly provided when SQS_ENDPOINT or S3_ENDPOINT is set in production',
+      });
+    }
+  }
 }).transform((data) => ({
   ...data,
-  // AWS key defaults apply ONLY when SQS_ENDPOINT or S3_ENDPOINT is set (local ElasticMQ / MinIO)
+  PAYMENT_PROVIDER: data.PAYMENT_PROVIDER || 'mock',
+  S3_PUBLIC_ENDPOINT: data.S3_PUBLIC_ENDPOINT || data.S3_ENDPOINT,
+  // AWS key defaults apply ONLY in non-production when SQS_ENDPOINT or S3_ENDPOINT is set
   AWS_ACCESS_KEY_ID:
-    data.AWS_ACCESS_KEY_ID || (data.SQS_ENDPOINT || data.S3_ENDPOINT ? 'nestly_local_key' : undefined),
+    data.AWS_ACCESS_KEY_ID ||
+    (data.NODE_ENV !== 'production' && (data.SQS_ENDPOINT || data.S3_ENDPOINT) ? 'nestly_local_key' : undefined),
   AWS_SECRET_ACCESS_KEY:
-    data.AWS_SECRET_ACCESS_KEY || (data.SQS_ENDPOINT || data.S3_ENDPOINT ? 'nestly_local_secret' : undefined),
+    data.AWS_SECRET_ACCESS_KEY ||
+    (data.NODE_ENV !== 'production' && (data.SQS_ENDPOINT || data.S3_ENDPOINT) ? 'nestly_local_secret' : undefined),
 }));
 
-const result = envSchema.safeParse(process.env);
+export function parseEnv(rawEnv = process.env) {
+  return envSchema.safeParse(rawEnv);
+}
+
+const result = parseEnv(process.env);
 
 if (!result.success) {
   console.error('❌ Invalid environment variables:');

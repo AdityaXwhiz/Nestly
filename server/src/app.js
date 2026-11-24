@@ -22,7 +22,17 @@ import ordersRoutes from './modules/orders/routes.js';
 import paymentsRoutes from './modules/payments/routes.js';
 import searchRoutes from './modules/search/routes.js';
 
+export function parseTrustProxy(val) {
+  if (!val || val === 'false') return false;
+  if (val === 'true') return true;
+  if (/^\d+$/.test(val.trim())) return Number(val.trim());
+  const parts = val.split(',').map((s) => s.trim()).filter(Boolean);
+  return parts.length === 1 ? parts[0] : parts;
+}
+
 const app = express();
+app.set('trust proxy', parseTrustProxy(env.TRUST_PROXY));
+app.locals.isShuttingDown = false;
 
 // --------------- Global middleware ---------------
 app.use(helmet());
@@ -61,6 +71,10 @@ app.get('/healthz', (_req, res) => {
 
 /** Readiness — can we serve traffic? (Postgres is required, Redis is optional/degraded) */
 app.get('/readyz', async (req, res) => {
+  if (app.locals.isShuttingDown) {
+    return res.status(503).json({ status: 'shutting_down', postgres: false, redis: false });
+  }
+
   const [pg, rd] = await Promise.all([pingPostgres(), pingRedis()]);
 
   const status = pg && rd ? 'ok' : 'degraded';
@@ -82,16 +96,18 @@ app.use('/api/v1/orders', ordersRoutes);
 app.use('/api/v1/payments', paymentsRoutes);
 app.use('/api/v1/search', searchRoutes);
 
-// --------------- Temporary RBAC Verification Routes ---------------
-// TEMPORARY: for proving RBAC (admin only)
-app.get('/api/v1/admin/ping', authN, authZ('ADMIN'), (_req, res) => {
-  res.json({ message: 'admin pong' });
-});
+// --------------- Temporary RBAC Verification Routes (disabled in production) ---------------
+if (env.NODE_ENV !== 'production') {
+  // TEMPORARY: for proving RBAC (admin only)
+  app.get('/api/v1/admin/ping', authN, authZ('ADMIN'), (_req, res) => {
+    res.json({ message: 'admin pong' });
+  });
 
-// TEMPORARY: for proving RBAC (host or admin)
-app.get('/api/v1/host/ping', authN, authZ('HOST', 'ADMIN'), (_req, res) => {
-  res.json({ message: 'host pong' });
-});
+  // TEMPORARY: for proving RBAC (host or admin)
+  app.get('/api/v1/host/ping', authN, authZ('HOST', 'ADMIN'), (_req, res) => {
+    res.json({ message: 'host pong' });
+  });
+}
 
 // --------------- 404 handler ---------------
 app.use((_req, _res, next) => {

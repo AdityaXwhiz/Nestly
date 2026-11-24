@@ -3,9 +3,22 @@ import { ordersController } from './controller.js';
 import { authN } from '../../middleware/authN.js';
 import { authZ } from '../../middleware/authZ.js';
 import { validate } from '../../middleware/validate.js';
-import { createOrderSchema, orderIdParamSchema } from './validation.js';
+import {
+  createOrderSchema,
+  orderIdParamSchema,
+  listOrdersQuerySchema,
+} from './validation.js';
 
 const router = Router();
+
+// GET /api/v1/orders (CUSTOMER: own orders; ADMIN: all orders)
+router.get(
+  '/',
+  authN,
+  authZ('CUSTOMER', 'ADMIN'),
+  validate({ query: listOrdersQuerySchema }),
+  ordersController.listOrders,
+);
 
 // POST /api/v1/orders (CUSTOMER only)
 router.post(

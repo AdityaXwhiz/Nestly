@@ -8,7 +8,11 @@ export const serviceItemSchema = z
       .int('Quantity must be an integer')
       .positive('Quantity must be a positive integer')
       .max(100, 'Quantity cannot exceed 100 per line'),
-    slot: z.string().trim().min(1, 'Slot cannot be empty').optional(),
+    slot: z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Slot must be formatted as YYYY-MM-DD')
+      .optional(),
   })
   .strict();
 
@@ -73,7 +77,25 @@ export const createOrderSchema = z
       });
     }
 
-    // 3. Reject duplicate (service_id, slot) lines
+    // 3. For capacity service slots, slot date must fall inside order date range (Change #4)
+    if (data.services && data.services.length > 0) {
+      const orderStartDateStr = data.during.start.slice(0, 10);
+      const orderEndDateStr = data.during.end.slice(0, 10);
+
+      data.services.forEach((s, idx) => {
+        if (s.slot) {
+          if (s.slot < orderStartDateStr || s.slot > orderEndDateStr) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['services', idx, 'slot'],
+              message: `Slot date ${s.slot} must fall inside the order date range (${orderStartDateStr} to ${orderEndDateStr})`,
+            });
+          }
+        }
+      });
+    }
+
+    // 4. Reject duplicate (service_id, slot) lines
     if (data.services && data.services.length > 0) {
       const seen = new Set();
       for (let i = 0; i < data.services.length; i++) {
@@ -94,5 +116,12 @@ export const createOrderSchema = z
 export const orderIdParamSchema = z
   .object({
     id: z.string().uuid('Invalid order ID format'),
+  })
+  .strict();
+
+export const listOrdersQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
   })
   .strict();

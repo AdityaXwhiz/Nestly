@@ -206,4 +206,16 @@ export const servicesRepository = {
     const result = await client.query(query, [id]);
     return result.rows[0] || null;
   },
+
+  async findByProviderId(providerId, client = db) {
+    const query = `
+      SELECT id, provider_id, title, description, category, kind, price_minor,
+             currency, duration_minutes, capacity, status, version, created_at, updated_at
+      FROM services
+      WHERE provider_id = $1
+      ORDER BY created_at DESC, id DESC;
+    `;
+    const res = await client.query(query, [providerId]);
+    return res.rows;
+  },
 };

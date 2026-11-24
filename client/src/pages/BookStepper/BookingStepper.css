@@ -1,0 +1,283 @@
+.booking-page {
+  padding: 2.5rem 0;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.booking-header {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.booking-title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.booking-subtitle {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+}
+
+/* Accessible Stepper */
+.stepper-nav {
+  margin-bottom: 2.5rem;
+}
+
+.stepper-list {
+  display: flex;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  position: relative;
+}
+
+.stepper-item {
+  flex: 1;
+  text-align: center;
+  padding: 1rem 0.5rem;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.stepper-bubble {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  background-color: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  transition: all var(--transition-fast);
+}
+
+.stepper-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.stepper-item.active .stepper-bubble {
+  background-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.stepper-item.active .stepper-label {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-bold);
+}
+
+.stepper-item.completed .stepper-bubble {
+  background-color: var(--color-bg-subtle);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent-border);
+}
+
+/* Step Content Container */
+.step-content {
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.step-heading {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: 1.5rem;
+}
+
+.step-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+/* Step 1: Details */
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.availability-alert {
+  margin-top: 1rem;
+  padding: 0.875rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+}
+
+.availability-alert.available {
+  background-color: var(--color-accent-subtle);
+  border: 1px solid var(--color-accent-border);
+  color: var(--color-accent);
+}
+
+.availability-alert.unavailable {
+  background-color: var(--color-danger-bg);
+  border: 1px solid var(--color-danger-border);
+  color: var(--color-danger);
+}
+
+/* Step 2: Services */
+.services-selection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.service-select-card {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: border-color var(--transition-fast);
+}
+
+.service-select-card.selected {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-subtle);
+}
+
+.service-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.service-card-info h4 {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.service-card-info p {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.service-card-price {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-accent);
+  font-size: var(--font-size-base);
+}
+
+.service-card-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--color-border-subtle);
+}
+
+.service-control-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--font-size-sm);
+}
+
+/* Step 3: Review */
+.review-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+}
+
+.review-summary-table th,
+.review-summary-table td {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  text-align: left;
+}
+
+.review-summary-table th:last-child,
+.review-summary-table td:last-child {
+  text-align: right;
+}
+
+.review-total-row {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  border-top: 2px solid var(--color-border-strong);
+}
+
+.review-total-amount {
+  color: var(--color-accent);
+  font-size: var(--font-size-xl);
+}
+
+.server-verified-note {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 0.5rem;
+}
+
+/* Step 4: Hold & Pay */
+.hold-timer-container {
+  text-align: center;
+  padding: 2rem;
+  background-color: var(--color-bg-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 2rem;
+}
+
+.hold-timer-clock {
+  font-family: var(--font-mono);
+  font-size: 3rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent);
+  margin: 0.5rem 0;
+}
+
+.hold-timer-clock.expiring {
+  color: var(--color-danger);
+}
+
+.hold-instructions {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.payment-simulation-box {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: 1.5rem;
+  background-color: var(--color-bg-surface);
+  margin-bottom: 1.5rem;
+}
+
+.payment-simulation-box p {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
+}
+
+@media (max-width: 640px) {
+  .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .stepper-label {
+    display: none;
+  }
+}

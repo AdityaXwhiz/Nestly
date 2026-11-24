@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import { withTx, pool } from '../infrastructure/postgres.js';
 import { publishOutbox } from '../modules/outbox/publisher.js';
 import { outboxRepository } from '../modules/outbox/repository.js';
@@ -192,6 +193,7 @@ export function startWorker({
   dlqMonitorIntervalMs = 60000,
   consumerOptions = {},
   closePoolOnStop = false,
+  heartbeatFile = env.NODE_ENV !== 'test' ? '/tmp/worker-heartbeat' : null,
 } = {}) {
   const enabledRoles = parseWorkerRoles(roles);
   const intervals = [];
@@ -309,6 +311,22 @@ export function startWorker({
     consumers.push(searchConsumer);
   }
 
+  // Heartbeat loop for container healthchecks (verifies DB connectivity)
+  if (heartbeatFile) {
+    const writeHeartbeat = async () => {
+      try {
+        await pool.query('SELECT 1');
+        await fs.writeFile(heartbeatFile, String(Date.now()), 'utf8');
+      } catch (err) {
+        logger.warn({ err: err.message }, 'Worker heartbeat check failed');
+      }
+    };
+    writeHeartbeat();
+    const hbTimer = setInterval(writeHeartbeat, 10000);
+    hbTimer.unref();
+    intervals.push(hbTimer);
+  }
+
   let stopped = false;
 
   const stop = async ({ exitProcess = false } = {}) => {
@@ -316,14 +334,29 @@ export function startWorker({
     stopped = true;
     logger.info('Shutting down Nestly Worker...');
 
+    const forceTimer = exitProcess
+      ? setTimeout(() => {
+          logger.error('Worker graceful shutdown timed out after 20s; forcing exit');
+          process.exit(1);
+        }, 20000).unref()
+      : null;
+
     for (const timer of intervals) {
       clearInterval(timer);
+    }
+
+    if (heartbeatFile) {
+      await fs.unlink(heartbeatFile).catch(() => {});
     }
 
     await Promise.allSettled(consumers.map((c) => c.stop()));
 
     if (closePoolOnStop || exitProcess) {
       await pool.end().catch(() => {});
+    }
+
+    if (forceTimer) {
+      clearTimeout(forceTimer);
     }
     if (exitProcess) {
       process.exit(0);

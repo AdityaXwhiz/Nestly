@@ -209,6 +209,28 @@ export const propertiesService = {
     return propertiesRepository.deleteById(id);
   },
 
+  async listMyProperties(hostId) {
+    const properties = await propertiesRepository.findByHostId(hostId);
+    if (!properties || properties.length === 0) {
+      return { properties: [] };
+    }
+
+    const propertyIds = properties.map((p) => p.id);
+    const [amenityMap, imageMap] = await Promise.all([
+      propertiesRepository.getAmenitiesByPropertyIds(propertyIds),
+      propertyImagesRepository.getReadyImagesByPropertyIds(propertyIds),
+    ]);
+
+    const enriched = properties.map((p) => ({
+      ...p,
+      amenities: amenityMap.get(p.id) || [],
+      images: imageMap.get(p.id) || [],
+      cover_image_url: (imageMap.get(p.id) && imageMap.get(p.id)[0]) ? imageMap.get(p.id)[0].url : null,
+    }));
+
+    return { properties: enriched };
+  },
+
   /**
    * Internal cross-module lookup (does not filter out INACTIVE properties).
    */

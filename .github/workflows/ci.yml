@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least-privilege permissions (no deploy / write access)
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same branch/PR (Change #10)
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client:
+    name: Client Lint, Test & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node.js with npm cache
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.14.0"
+          cache: "npm"
+          cache-dependency-path: "client/package-lock.json"
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Lint client
+        working-directory: client
+        run: npm run lint
+
+      - name: Run client unit and accessibility tests
+        working-directory: client
+        run: npm test
+
+      - name: Build client production bundle
+        working-directory: client
+        run: npm run build
+
+  server:
+    name: Server Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node.js with npm cache
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.14.0"
+          cache: "npm"
+          cache-dependency-path: "server/package-lock.json"
+
+      - name: Configure Linux vm.max_map_count for OpenSearch
+        run: sudo sysctl -w vm.max_map_count=262144
+
+      - name: Generate test .env with ephemeral secrets
+        run: |
+          cp .env.example .env
+          sed -i "s|replace_with_strong_postgres_password|nestly_dev|g" .env
+          sed -i "s|replace_with_a_secure_random_string_at_least_32_chars|$(openssl rand -hex 32)|g" .env
+          sed -i "s|replace_with_payment_webhook_secret_at_least_32_characters|$(openssl rand -hex 32)|g" .env
+          sed -i "s|replace_with_local_s3_sqs_access_key|nestly_local_key|g" .env
+          sed -i "s|replace_with_local_s3_sqs_secret_key|nestly_local_secret|g" .env
+          sed -i "s|replace_with_minio_root_user|nestly_local_key|g" .env
+          sed -i "s|replace_with_minio_root_password|nestly_local_secret|g" .env
+
+      - name: Start infrastructure dependencies (OpenSearch heap capped at 512MB)
+        run: docker compose up -d --wait
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Run migrations and infrastructure setup
+        working-directory: server
+        run: |
+          npm run migrate:up
+          npm run queues:setup
+          npm run storage:setup
+
+      - name: Run server test suite
+        working-directory: server
+        env:
+          NODE_ENV: test
+        run: npm test
+
+      - name: Collect compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color > server-compose-logs.txt || true
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: server-compose-logs
+          path: server-compose-logs.txt
+
+      - name: Tear down compose stack
+        if: always()
+        run: docker compose down -v || true
+
+  build-and-smoke:
+    name: Build Docker Images & Run Composed Smoke Test
+    needs: [client, server]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Configure Linux vm.max_map_count for OpenSearch
+        run: sudo sysctl -w vm.max_map_count=262144
+
+      - name: Generate ephemeral production secrets with openssl rand
+        run: |
+          cp .env.example .env
+          PG_PASS=$(openssl rand -hex 16)
+          MINIO_USER="minio$(openssl rand -hex 6)"
+          MINIO_PASS=$(openssl rand -hex 16)
+          sed -i "s|replace_with_strong_postgres_password|${PG_PASS}|g" .env
+          sed -i "s|replace_with_a_secure_random_string_at_least_32_chars|$(openssl rand -hex 32)|g" .env
+          sed -i "s|replace_with_payment_webhook_secret_at_least_32_characters|$(openssl rand -hex 32)|g" .env
+          sed -i "s|replace_with_minio_root_user|${MINIO_USER}|g" .env
+          sed -i "s|replace_with_minio_root_password|${MINIO_PASS}|g" .env
+          sed -i "s|replace_with_local_s3_sqs_access_key|${MINIO_USER}|g" .env
+          sed -i "s|replace_with_local_s3_sqs_secret_key|${MINIO_PASS}|g" .env
+
+      - name: Build images and boot full prod-like stack
+        run: docker compose -f docker-compose.prod.yml up --build -d --wait
+
+      - name: Verify .env is excluded from built images
+        run: |
+          docker compose -f docker-compose.prod.yml exec -T api find /app -maxdepth 2 -name ".env*" | grep -q . && exit 1 || true
+          docker compose -f docker-compose.prod.yml exec -T client find /usr/share/nginx/html -name ".env*" | grep -q . && exit 1 || true
+
+      - name: Run end-to-end smoke test against single origin
+        env:
+          SMOKE_BASE_URL: http://localhost:8080
+        run: npm run smoke
+
+      - name: Collect docker compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs --no-color > prod-compose-logs.txt || true
+
+      - name: Upload failure logs artifact
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: prod-compose-logs
+          path: prod-compose-logs.txt
+
+      - name: Tear down prod compose stack
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v || true

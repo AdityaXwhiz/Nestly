@@ -143,17 +143,28 @@ export const reservationsRepository = {
    * Returns empty array if capacity would be exceeded.
    */
   async incrementCapacity(serviceId, slot, quantity, client = db) {
-    const query = `
+    // 1. Create the (service_id, slot) service_capacity row on first use (Change #3)
+    // Seeding base capacity from services table with 0 initial reserved count
+    await client.query(
+      `
       INSERT INTO service_capacity (service_id, slot, capacity, reserved)
-      SELECT id, $2, capacity, $3
+      SELECT id, $2, capacity, 0
       FROM services
-      WHERE id = $1 AND capacity >= $3
-      ON CONFLICT (service_id, slot)
-      DO UPDATE SET
-        reserved = service_capacity.reserved + $3,
-        updated_at = now()
-      WHERE (service_capacity.reserved + $3) <= service_capacity.capacity
-      RETURNING id, service_id, slot, capacity, reserved
+      WHERE id = $1
+      ON CONFLICT (service_id, slot) DO NOTHING;
+      `,
+      [serviceId, slot],
+    );
+
+    // 2. Run existing conditional UPDATE to increment reserved count atomically
+    const query = `
+      UPDATE service_capacity
+      SET reserved = reserved + $3,
+          updated_at = now()
+      WHERE service_id = $1
+        AND slot = $2
+        AND (reserved + $3) <= capacity
+      RETURNING id, service_id, slot, capacity, reserved;
     `;
     const result = await client.query(query, [serviceId, slot, quantity]);
     return result.rows[0] || null;

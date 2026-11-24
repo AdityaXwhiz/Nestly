@@ -31,13 +31,69 @@ export const propertiesApi = {
 
   /**
    * Fetch indicative availability window for a property.
-   * Window cannot exceed 90 days (Change #8).
-   * @param {string} id
-   * @param {string} from - ISO timestamp
-   * @param {string} to - ISO timestamp
+   * Window cannot exceed 90 days.
    */
   async getPropertyAvailability(id, from, to) {
     const params = new URLSearchParams({ from, to });
     return apiFetch(`/properties/${id}/availability?${params.toString()}`);
+  },
+
+  /**
+   * Fetch host's own properties (including non-active ones).
+   */
+  async getMyProperties() {
+    const data = await apiFetch('/properties/mine');
+    return data.properties || [];
+  },
+
+  /**
+   * Create a new property listing (HOST).
+   */
+  async createProperty(data) {
+    const res = await apiFetch('/properties', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return res.property;
+  },
+
+  /**
+   * Update an existing property (HOST). Status can only be ACTIVE or INACTIVE.
+   */
+  async updateProperty(id, data) {
+    const res = await apiFetch(`/properties/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return res.property;
+  },
+
+  /**
+   * Step 1 of presigned image upload flow: request presigned upload URL.
+   */
+  async requestImageUploadUrl(propertyId, { content_type, size_bytes }) {
+    return apiFetch(`/properties/${propertyId}/images/upload-url`, {
+      method: 'POST',
+      body: JSON.stringify({ content_type, size_bytes }),
+    });
+  },
+
+  /**
+   * Step 3 of presigned image upload flow: confirm upload after PUT.
+   */
+  async confirmPropertyImage(propertyId, imageId) {
+    const res = await apiFetch(`/properties/${propertyId}/images/${imageId}/confirm`, {
+      method: 'POST',
+    });
+    return res.image;
+  },
+
+  /**
+   * Delete an image from a property.
+   */
+  async deletePropertyImage(propertyId, imageId) {
+    return apiFetch(`/properties/${propertyId}/images/${imageId}`, {
+      method: 'DELETE',
+    });
   },
 };

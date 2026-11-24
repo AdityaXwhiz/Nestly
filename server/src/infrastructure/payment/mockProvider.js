@@ -132,10 +132,24 @@ app.post('/refunds', (req, res) => {
   res.status(200).json(refund);
 });
 
+app.get('/healthz', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`🚀 Nestly Mock Payment Provider listening on port ${PORT}`);
   });
+
+  const stop = () => {
+    console.log('Shutting down Mock Payment Provider...');
+    server.close(() => process.exit(0));
+    server.closeIdleConnections?.();
+    setTimeout(() => process.exit(1), 5000).unref();
+  };
+
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
 }
 
 export default app;

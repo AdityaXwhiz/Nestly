@@ -1,0 +1,8 @@
+{
+  "name": "nestly",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node server/scripts/smoke.js"
+  }
+}

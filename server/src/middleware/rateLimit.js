@@ -19,7 +19,8 @@ export function rateLimit(options = {}) {
   const windowSec = options.windowSec || env.RATE_LIMIT_AUTH_WINDOW_SEC;
 
   return async (req, res, next) => {
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    // Express resolves req.ip safely according to `app.set('trust proxy', ...)`
+    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
     const currentEpochSec = Math.floor(Date.now() / 1000);
     const window = Math.floor(currentEpochSec / windowSec);
     const key = `rate:${scope}:${ip}:${window}`;

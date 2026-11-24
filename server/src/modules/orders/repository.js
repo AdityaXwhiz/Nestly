@@ -122,4 +122,41 @@ export const ordersRepository = {
   async deleteById(id, client = db) {
     await client.query('DELETE FROM orders WHERE id = $1;', [id]);
   },
+
+  /**
+   * List orders paginated, newest first. If userId is provided, filters by user_id.
+   */
+  async listOrders({ userId = null, limit = 20, offset = 0 } = {}, client = db) {
+    const whereClauses = [];
+    const params = [];
+
+    if (userId) {
+      params.push(userId);
+      whereClauses.push(`user_id = $${params.length}`);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const countSql = `SELECT count(*)::int as total FROM orders ${whereSql};`;
+    const countRes = await client.query(countSql, params);
+    const total = countRes.rows[0]?.total || 0;
+
+    params.push(limit);
+    const limitParam = `$${params.length}`;
+    params.push(offset);
+    const offsetParam = `$${params.length}`;
+
+    const listSql = `
+      SELECT *
+      FROM orders
+      ${whereSql}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ${limitParam} OFFSET ${offsetParam};
+    `;
+    const listRes = await client.query(listSql, params);
+    return {
+      orders: listRes.rows,
+      total,
+    };
+  },
 };

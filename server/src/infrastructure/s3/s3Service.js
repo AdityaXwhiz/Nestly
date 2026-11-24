@@ -6,7 +6,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { s3Client } from './client.js';
+import { s3Client, s3PublicClient } from './client.js';
 import { verifyMagicBytes } from './magicBytes.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../../errors/AppError.js';
@@ -15,6 +15,7 @@ import { logger } from '../../middleware/requestLogger.js';
 export const s3Service = {
   /**
    * Generates a presigned PUT URL for uploading an object directly to S3.
+   * Uses s3PublicClient (S3_PUBLIC_ENDPOINT) ONLY for presigning (Change #1).
    * Signs Content-Type and Content-Length (Change #2).
    */
   async createPresignedUploadUrl({
@@ -22,7 +23,7 @@ export const s3Service = {
     contentType,
     sizeBytes,
     expiresInSeconds = 300,
-    client = s3Client,
+    client = s3PublicClient,
     bucket = env.S3_BUCKET,
   }) {
     const command = new PutObjectCommand({

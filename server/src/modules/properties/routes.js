@@ -21,6 +21,14 @@ router.get(
   propertiesController.listProperties,
 );
 
+// Host own properties (including non-active ones)
+router.get(
+  '/mine',
+  authN,
+  authZ('HOST'),
+  propertiesController.listMyProperties,
+);
+
 router.get(
   '/:id',
   validate({ params: propertyIdParamSchema }),

@@ -44,8 +44,9 @@ export function setOnSessionExpired(handler) {
 const DEFAULT_BASE_URL = 'http://localhost:3000/api/v1';
 
 export function getApiBaseUrl() {
+  const runtimeUrl = typeof window !== 'undefined' && window.__NESTLY_CONFIG__?.API_BASE_URL;
   const envUrl = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL;
-  return (envUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
+  return (runtimeUrl || envUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
 }
 
 /**

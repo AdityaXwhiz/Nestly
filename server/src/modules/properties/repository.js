@@ -282,4 +282,15 @@ export const propertiesRepository = {
     const result = await client.query(query, [id]);
     return result.rows[0] || null;
   },
+
+  async findByHostId(hostId, client = db) {
+    const query = `
+      SELECT id, host_id, title, description, location, capacity, pricing_minor, currency, status, version, created_at, updated_at
+      FROM properties
+      WHERE host_id = $1
+      ORDER BY created_at DESC, id DESC;
+    `;
+    const res = await client.query(query, [hostId]);
+    return res.rows;
+  },
 };
