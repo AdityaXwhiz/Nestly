@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "smoke": "node server/scripts/smoke.js"
+    "smoke": "node server/scripts/smoke.js",
+    "chaos:check": "node server/scripts/chaosCheck.js"
   }
 }

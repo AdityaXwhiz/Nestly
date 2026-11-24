@@ -5,6 +5,7 @@ import cors from 'cors';
 import { env } from './config/env.js';
 import { requestId } from './middleware/requestId.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { httpMetrics } from './middleware/httpMetrics.js';
 import { authN } from './middleware/authN.js';
 import { authZ } from './middleware/authZ.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -61,6 +62,7 @@ app.use(
 );
 app.use(requestId);
 app.use(requestLogger);
+app.use(httpMetrics);
 
 // --------------- Health routes ---------------
 

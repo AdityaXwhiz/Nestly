@@ -2,7 +2,7 @@ import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { withTx } from '../../infrastructure/postgres.js';
 import { sqsClient, QUEUE_DEFINITIONS } from '../../infrastructure/sqs/client.js';
 import { env } from '../../config/env.js';
-import { logger } from '../../middleware/requestLogger.js';
+import { logger, runWithRequestContext } from '../../middleware/requestLogger.js';
 
 /**
  * Outbox Event Envelope & aggregateId Semantics (Change #7):
@@ -106,6 +106,25 @@ export class SqsPublisher {
     const queueNames = resolveTargetQueues(envelope.eventType);
     const body = JSON.stringify(envelope);
 
+    const messageAttributes = {
+      eventType: {
+        DataType: 'String',
+        StringValue: envelope.eventType,
+      },
+    };
+    if (envelope.requestId) {
+      messageAttributes.requestId = {
+        DataType: 'String',
+        StringValue: String(envelope.requestId),
+      };
+    }
+    if (envelope.originRequestId) {
+      messageAttributes.originRequestId = {
+        DataType: 'String',
+        StringValue: String(envelope.originRequestId),
+      };
+    }
+
     for (const qName of queueNames) {
       const def = QUEUE_DEFINITIONS[qName];
       if (!def) continue;
@@ -114,12 +133,7 @@ export class SqsPublisher {
         new SendMessageCommand({
           QueueUrl: def.url,
           MessageBody: body,
-          MessageAttributes: {
-            eventType: {
-              DataType: 'String',
-              StringValue: envelope.eventType,
-            },
-          },
+          MessageAttributes: messageAttributes,
         }),
       );
     }
@@ -191,7 +205,7 @@ export async function publishOutbox({
 } = {}) {
   const execute = async (tx) => {
     const query = `
-      SELECT id, aggregate_id, event_type, payload, created_at
+      SELECT id, aggregate_id, event_type, payload, request_id, created_at
       FROM outbox
       WHERE published_at IS NULL
       ORDER BY created_at ASC, id ASC
@@ -204,30 +218,38 @@ export async function publishOutbox({
     const published = [];
 
     for (const row of rows) {
+      const originRequestId = row.payload?.origin_request_id || undefined;
       const envelope = {
         eventId: row.id,
         eventType: row.event_type,
         occurredAt: new Date(row.created_at).toISOString(),
         aggregateId: row.aggregate_id,
+        ...(row.request_id ? { requestId: row.request_id } : {}),
+        ...(originRequestId ? { originRequestId } : {}),
         version: 1,
         payload: row.payload,
       };
 
-      // Publish with timeout
-      await Promise.race([
-        publisher.publish(envelope),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Outbox publisher timeout')), timeoutMs),
-        ),
-      ]);
+      await runWithRequestContext(
+        { requestId: row.request_id || null, originRequestId: originRequestId || null },
+        async () => {
+          // Publish with timeout
+          await Promise.race([
+            publisher.publish(envelope),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Outbox publisher timeout')), timeoutMs),
+            ),
+          ]);
 
-      // Test hook: simulated crash after publish but before marking published_at
-      if (process.env.NODE_ENV === 'test' && outboxFailureHook) {
-        outboxFailureHook(envelope);
-      }
+          // Test hook: simulated crash after publish but before marking published_at
+          if (process.env.NODE_ENV === 'test' && outboxFailureHook) {
+            outboxFailureHook(envelope);
+          }
 
-      await tx.query('UPDATE outbox SET published_at = now() WHERE id = $1;', [row.id]);
-      published.push(envelope);
+          await tx.query('UPDATE outbox SET published_at = now() WHERE id = $1;', [row.id]);
+          published.push(envelope);
+        },
+      );
     }
 
     return published;

@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { env } from '../config/env.js';
+import { registerDbPoolMetrics } from './metrics/index.js';
 
 // Parse PostgreSQL int8 (bigint / OID 20) as JavaScript integer numbers
 pg.types.setTypeParser(20, (val) => (val === null ? null : parseInt(val, 10)));
@@ -8,6 +9,8 @@ export const pool = new pg.Pool({
   connectionString: env.DATABASE_URL,
   max: env.DB_POOL_MAX,
 });
+
+registerDbPoolMetrics(pool);
 
 /**
  * Executes a function within a database transaction.

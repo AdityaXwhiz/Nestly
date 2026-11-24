@@ -555,16 +555,17 @@ describe('Step 11B: OpenSearch Search Engine Test Suite', () => {
 
       await publishOutbox();
 
-      // Wait until document is indexed in OpenSearch
+      // Wait until document is indexed in OpenSearch and refreshed for search queries
       await waitFor(async () => {
-        await openSearchClient.indices.refresh({ index: TEST_PROPERTIES_ALIAS });
         const directDoc = await openSearchClient
           .get({
             index: TEST_PROPERTIES_ALIAS,
             id: prop.id,
           })
           .catch(() => null);
-        return directDoc?.body?._source ? directDoc : null;
+        if (!directDoc?.body?._source) return null;
+        await openSearchClient.indices.refresh({ index: TEST_PROPERTIES_ALIAS });
+        return directDoc;
       });
 
       // Search endpoint returns indicative: true

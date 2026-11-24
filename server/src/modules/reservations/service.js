@@ -3,6 +3,7 @@ import { servicesRepository } from '../services/repository.js';
 import { outboxRepository } from '../outbox/repository.js';
 import { withTx, db } from '../../infrastructure/postgres.js';
 import { acquire, release } from '../../infrastructure/redis/lock.js';
+import { reservationsTotal } from '../../infrastructure/metrics/index.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../../errors/AppError.js';
 
@@ -45,6 +46,7 @@ export const reservationsService = {
         const existing = await reservationsRepository.findActiveByOrderItemId(item.order_item_id, db);
         if (existing) return existing;
       }
+      reservationsTotal.inc({ outcome: 'conflict' });
       throw new AppError(
         'RESOURCE_BUSY',
         409,
@@ -64,6 +66,9 @@ export const reservationsService = {
 
       // 1. Expire stale holds for this resource and give back capacity for capacity services
       const staleHolds = await reservationsRepository.expireStaleHolds(item.resource_id, tx);
+      if (staleHolds.length > 0) {
+        reservationsTotal.inc({ outcome: 'expired' }, staleHolds.length);
+      }
       for (const stale of staleHolds) {
         if (!stale.is_exclusive && stale.slot) {
           await reservationsRepository.decrementCapacity(
@@ -171,6 +176,7 @@ export const reservationsService = {
         tx,
       );
 
+      reservationsTotal.inc({ outcome: 'held' });
       return reservation;
     });
     } catch (err) {
@@ -179,6 +185,9 @@ export const reservationsService = {
         if (existing) {
           return existing;
         }
+      }
+      if (err.code === 'RESOURCE_CONFLICT') {
+        reservationsTotal.inc({ outcome: 'conflict' });
       }
       throw err;
     } finally {
@@ -213,6 +222,7 @@ export const reservationsService = {
         tx,
       );
 
+      reservationsTotal.inc({ outcome: 'confirmed' });
       return confirmed;
     };
 
@@ -254,6 +264,7 @@ export const reservationsService = {
           },
           tx,
         );
+        reservationsTotal.inc({ outcome: 'released' });
         return row;
       }
 
@@ -300,6 +311,7 @@ export const reservationsService = {
           tx,
         );
         confirmedList.push(confirmed);
+        reservationsTotal.inc({ outcome: 'confirmed' });
       }
       return confirmedList;
     };
@@ -341,6 +353,7 @@ export const reservationsService = {
             tx,
           );
           releasedList.push(row);
+          reservationsTotal.inc({ outcome: 'released' });
         }
       }
       return releasedList;
@@ -388,6 +401,10 @@ export const reservationsService = {
           },
           tx,
         );
+      }
+
+      if (expiredRows.length > 0) {
+        reservationsTotal.inc({ outcome: 'expired' }, expiredRows.length);
       }
 
       return expiredRows;

@@ -1,0 +1,109 @@
+{
+  "uid": "nestly-04-async",
+  "title": "Nestly 04 - Outbox, SQS & Workers",
+  "tags": ["nestly", "workers", "sqs"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Outbox Unpublished Count & Oldest Age",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(nestly_outbox_unpublished_count)",
+          "legendFormat": "unpublished rows"
+        },
+        {
+          "refId": "B",
+          "expr": "max(nestly_outbox_oldest_unpublished_age_seconds)",
+          "legendFormat": "oldest age (s)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "SQS Queue & DLQ Depth per Queue",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (queue) (nestly_sqs_queue_depth)",
+          "legendFormat": "queue:{{queue}}"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (queue) (nestly_sqs_dlq_depth)",
+          "legendFormat": "dlq:{{queue}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Worker Messages Received vs Failures",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (queue) (rate(nestly_worker_messages_received_total[5m]))",
+          "legendFormat": "rx:{{queue}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (queue) (rate(nestly_worker_consumer_failures_total[5m]))",
+          "legendFormat": "fail:{{queue}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Consumer Duration P95 & Message Age P95",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (queue, le) (rate(nestly_worker_consumer_duration_seconds_bucket[5m])))",
+          "legendFormat": "proc P95 {{queue}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (queue, le) (rate(nestly_worker_message_age_seconds_bucket[5m])))",
+          "legendFormat": "age P95 {{queue}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Scheduler Tick Duration P95 & Skipped Runs",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (task, le) (rate(nestly_worker_scheduler_tick_duration_seconds_bucket[5m])))",
+          "legendFormat": "tick P95 {{task}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (task) (rate(nestly_worker_scheduler_skipped_total[5m]))",
+          "legendFormat": "skipped {{task}}"
+        }
+      ]
+    }
+  ]
+}

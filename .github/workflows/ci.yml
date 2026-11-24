@@ -74,6 +74,7 @@ jobs:
           sed -i "s|replace_with_local_s3_sqs_secret_key|nestly_local_secret|g" .env
           sed -i "s|replace_with_minio_root_user|nestly_local_key|g" .env
           sed -i "s|replace_with_minio_root_password|nestly_local_secret|g" .env
+          sed -i "s|replace_with_grafana_admin_password|$(openssl rand -hex 16)|g" .env
 
       - name: Start infrastructure dependencies (OpenSearch heap capped at 512MB)
         run: docker compose up -d --wait
@@ -140,6 +141,7 @@ jobs:
           sed -i "s|replace_with_minio_root_password|${MINIO_PASS}|g" .env
           sed -i "s|replace_with_local_s3_sqs_access_key|${MINIO_USER}|g" .env
           sed -i "s|replace_with_local_s3_sqs_secret_key|${MINIO_PASS}|g" .env
+          sed -i "s|replace_with_grafana_admin_password|$(openssl rand -hex 16)|g" .env
 
       - name: Build images and boot full prod-like stack
         run: docker compose -f docker-compose.prod.yml up --build -d --wait

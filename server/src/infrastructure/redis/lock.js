@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { redis, isRedisAvailable } from '../redis.js';
+import { redisLockOutcomesTotal } from '../metrics/index.js';
 
 const RELEASE_LUA = `
   if redis.call('get', KEYS[1]) == ARGV[1] then
@@ -18,14 +19,18 @@ const RELEASE_LUA = `
  */
 export async function acquire(key, ttlMs = 5000) {
   if (!isRedisAvailable()) {
+    redisLockOutcomesTotal.inc({ outcome: 'unavailable' });
     return { status: 'unavailable' };
   }
 
   try {
     const token = crypto.randomUUID();
     const ok = await redis.set(key, token, 'PX', ttlMs, 'NX');
+    const outcome = ok ? 'acquired' : 'busy';
+    redisLockOutcomesTotal.inc({ outcome });
     return ok ? { status: 'acquired', token } : { status: 'busy' };
   } catch {
+    redisLockOutcomesTotal.inc({ outcome: 'unavailable' });
     return { status: 'unavailable' };
   }
 }

@@ -1,0 +1,110 @@
+# Chaos-only Prometheus alert rules overlay (Change #4): short "for:" durations for fast automated verification.
+groups:
+  - name: nestly-chaos-alerts
+    rules:
+      - alert: ElevatedHttp5xxRate
+        expr: >
+          (sum(rate(nestly_http_requests_total{status_class="5xx"}[1m]))
+          / clamp_min(sum(rate(nestly_http_requests_total[1m])), 1e-6)) > 0.05
+          and sum(rate(nestly_http_requests_total{status_class="5xx"}[1m])) > 0
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: Elevated HTTP 5xx error rate on Nestly API
+
+      - alert: HighHttpP95Latency
+        expr: >
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(nestly_http_request_duration_seconds_bucket[1m]))
+          ) > 1.0
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: API P95 latency exceeds 1s budget
+
+      - alert: DbPoolWaitingClients
+        expr: max by (job, instance) (nestly_db_pool_connections{state="waiting"}) > 0
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL connection pool has waiting clients
+
+      - alert: SqsDlqNotEmpty
+        expr: max by (queue) (nestly_sqs_dlq_depth) > 0
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: Messages present in SQS Dead Letter Queue {{ $labels.queue }}
+
+      - alert: OutboxUnpublishedLagHigh
+        expr: max(nestly_outbox_oldest_unpublished_age_seconds) > 60
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: Outbox publisher lagging behind
+
+      - alert: HighWorkerMessageAge
+        expr: >
+          histogram_quantile(
+            0.95,
+            sum by (queue, le) (rate(nestly_worker_message_age_seconds_bucket[1m]))
+          ) > 30
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: High worker message age on queue {{ $labels.queue }}
+
+      - alert: PaymentsStuckProcessing
+        expr: max(nestly_payments_stuck_processing_count) > 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: Payments stuck in PROCESSING state
+
+      - alert: SagasStaleNonTerminal
+        expr: max(nestly_sagas_stale_non_terminal_count) > 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: Stale non-terminal booking sagas detected
+
+      - alert: RedisDependencyDown
+        expr: max by (dependency) (nestly_dependency_up{dependency="redis"}) == 0
+        for: 5s
+        labels:
+          severity: warning
+        annotations:
+          summary: Redis dependency unreachable
+
+      - alert: SearchDependencyDown
+        expr: max by (dependency) (nestly_dependency_up{dependency="opensearch"}) == 0
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenSearch dependency unreachable
+
+      - alert: CoreDependencyDown
+        expr: max by (dependency) (nestly_dependency_up{dependency=~"postgres|elasticmq|minio"}) == 0
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: Core dependency {{ $labels.dependency }} unreachable
+
+      - alert: TargetDown
+        expr: min by (job, instance) (up) == 0
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: Scrape target {{ $labels.job }} ({{ $labels.instance }}) is down

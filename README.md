@@ -20,7 +20,7 @@ cp .env.example .env.prod
 openssl rand -hex 32
 ```
 
-Update `.env.prod` with generated values for `POSTGRES_PASSWORD`, `JWT_ACCESS_SECRET`, `PAYMENT_WEBHOOK_SECRET`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` (production mode refuses to start with weak or default placeholders).
+Update `.env.prod` with generated values for `POSTGRES_PASSWORD`, `JWT_ACCESS_SECRET`, `PAYMENT_WEBHOOK_SECRET`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `GF_SECURITY_ADMIN_PASSWORD` (production mode refuses to start with weak or default placeholders).
 
 > **Note:** If you currently have the development Compose stack running (`docker compose up`), stop it first (`docker compose down`) so ports `8080` and `9000` are available. MinIO port `9000` is published in the local prod stack because browsers perform presigned PUT image uploads and public image reads directly against `S3_PUBLIC_ENDPOINT` (`http://localhost:9000`) and `MEDIA_PUBLIC_BASE_URL` instead of sending file bytes through the API.
 
@@ -57,3 +57,48 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm -e NODE_
 ```bash
 docker compose --env-file .env.prod -f docker-compose.prod.yml down
 ```
+
+---
+
+## Observability, Dashboards & Chaos Verification (Step 13B)
+
+Metrics (`/metrics`) are served on dedicated internal ports (`API_METRICS_PORT=9100`, `WORKER_METRICS_PORT=9101`) that are never published to the host; Nginx also returns `404` on `/metrics`. Prometheus and Grafana OSS run inside Compose bound to `127.0.0.1` only:
+
+- **Prometheus**: `http://127.0.0.1:9090` (7-day local retention)
+- **Grafana**: `http://127.0.0.1:3001` (sign-up & anonymous access disabled; sign in with `GF_SECURITY_ADMIN_USER` / `GF_SECURITY_ADMIN_PASSWORD`)
+
+In development mode (`docker-compose.yml`), start Prometheus + Grafana alongside infra using:
+
+```bash
+docker compose --profile observability up -d
+```
+
+Every HTTP request accepts sanitized `X-Request-Id` (`[A-Za-z0-9._-]{8,64}`) or generates one, propagating `reqId` across outbox rows, SQS envelopes/attributes, worker consumers, and JSON logs; payment webhooks and consumer jobs also log `origin_request_id` from the checkout payment request.
+
+### Chaos Verification (`npm run chaos:check`)
+
+Start the prod stack with the chaos rules overlay (`docker-compose.chaos.yml` shortens `for:` durations for fast automated verification), then run `chaos:check`:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml -f docker-compose.chaos.yml up --build -d --wait
+CHAOS_ENABLED=true npm run chaos:check
+```
+
+`chaos:check` refuses to run unless `CHAOS_ENABLED=true` and the Compose project is `nestly-prod`, injects 4 faults sequentially while sending traffic, asserts alerts fire and recover, and always restores stopped containers/queues in `finally` blocks.
+
+### Alert Runbooks
+
+| Alert | `for:` | Likely Cause | First Action |
+|---|---|---|---|
+| `ElevatedHttp5xxRate` | `2m` | Unhandled exceptions or upstream `mock-provider` outage (`503`) | Filter `api` logs by `statusCode>=500` and inspect failing `reqId` / `origin_request_id`; check dependency health dashboard. |
+| `HighHttpP95Latency` | `3m` | Slow Postgres queries, high concurrency, or event loop blocking | Inspect `01-api` dashboard event-loop lag & `db_pool_connections`; run `EXPLAIN` on slow endpoints. |
+| `DbPoolWaitingClients` | `2m` | `pg` connection pool saturated by slow queries or held transactions | Check active/long transactions in Postgres (`pg_stat_activity`), review `DB_POOL_MAX`, or terminate runaway queries. |
+| `SqsDlqNotEmpty` | `1m` | Poison payloads or repeated downstream failure moved messages to DLQ | Inspect with `npm --prefix server run dlq:inspect`, diagnose root cause via logged `reqId`, then redrive (`dlq:redrive`) or purge. |
+| `OutboxUnpublishedLagHigh` | `2m` | `worker-scheduler` publisher stalled or ElasticMQ unreachable | Verify `worker-scheduler` health and `nestly_dependency_up{dependency="elasticmq"}`; inspect outbox table backlog. |
+| `HighWorkerMessageAge` | `2m` | `worker-consumer` falling behind queue intake | Check `worker-consumer` logs, CPU/event-loop lag, and SQS queue depth; scale consumer workers if backlog grows. |
+| `PaymentsStuckProcessing` | `5m` | Payment webhook missed or delayed past reconciliation window | Check `mock-provider` reachability and `worker-scheduler` `payment_reconciler` logs using `origin_request_id`. |
+| `SagasStaleNonTerminal` | `5m` | Multi-step reservation saga crashed mid-flight | Inspect `worker-scheduler` `saga_recovery` tick logs and `saga_instances` state for impacted orders. |
+| `RedisDependencyDown` | `1m` | Redis container down or network failure | Restart `redis` service; verify API stays live in degraded Postgres fallback mode and cache/lock recovery resumes. |
+| `SearchDependencyDown` | `2m` | OpenSearch container down or cluster unhealthy | Check `opensearch` container memory/logs; catalog searches automatically degrade to PostgreSQL until recovered. |
+| `CoreDependencyDown` | `1m` | Postgres, ElasticMQ, or MinIO unreachable by collector probe | Inspect failing container health (`docker compose ps`) and restore connectivity immediately. |
+| `TargetDown` | `1m` | API, scheduler, or consumer metrics target unreachable | Inspect container state and exit logs (`docker compose logs <service>`); verify graceful shutdown/restart health. |

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { redis, isRedisAvailable } from '../redis.js';
 import { acquire, release } from './lock.js';
+import { cacheOperationsTotal } from '../metrics/index.js';
 
 /**
  * Cache consistency and staleness semantics:
@@ -15,8 +16,17 @@ import { acquire, release } from './lock.js';
  *   always validate against PostgreSQL.
  */
 
+function resolveCacheResource(key) {
+  if (key.startsWith('cache:search:')) return 'search';
+  if (key.startsWith('cache:property:')) return 'property';
+  if (key.startsWith('cache:service:')) return 'service';
+  return 'other';
+}
+
 function logCacheEvent(outcome, key) {
-  // Silent in production/test unless LOG_LEVEL=debug; avoids polluting stdout
+  if (outcome === 'hit' || outcome === 'miss' || outcome === 'bypass') {
+    cacheOperationsTotal.inc({ resource: resolveCacheResource(key), outcome });
+  }
 }
 
 /**

@@ -1,0 +1,132 @@
+{
+  "uid": "nestly-01-api",
+  "title": "Nestly 01 - API & Runtime",
+  "tags": ["nestly", "api"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "HTTP Request Rate by Status Class",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_class) (rate(nestly_http_requests_total[1m]))",
+          "legendFormat": "{{status_class}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "HTTP Latency Quantiles (P50 / P95 / P99)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nestly_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nestly_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(nestly_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "P99"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "HTTP Requests by Route Template (Top Routes)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (method, route) (rate(nestly_http_requests_total[5m])))",
+          "legendFormat": "{{method}} {{route}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "HTTP 5xx Error Ratio",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nestly_http_requests_total{status_class=\"5xx\"}[5m])) / clamp_min(sum(rate(nestly_http_requests_total[5m])), 1e-6)",
+          "legendFormat": "5xx ratio"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Node.js Event Loop Lag (P99 & Mean)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nestly_nodejs_eventloop_lag_p99_seconds",
+          "legendFormat": "{{job}} P99"
+        },
+        {
+          "refId": "B",
+          "expr": "nestly_nodejs_eventloop_lag_mean_seconds",
+          "legendFormat": "{{job}} mean"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Process Resident Memory (RSS)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nestly_process_resident_memory_bytes",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "PostgreSQL Connection Pool",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nestly_db_pool_connections",
+          "legendFormat": "{{job}} {{state}}"
+        }
+      ]
+    }
+  ]
+}

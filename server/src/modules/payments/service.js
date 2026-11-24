@@ -7,7 +7,18 @@ import { paymentProvider } from '../../infrastructure/payment/index.js';
 import { withTx } from '../../infrastructure/postgres.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../../errors/AppError.js';
-import { logger } from '../../middleware/requestLogger.js';
+import {
+  logger,
+  getRequestId,
+  setOriginRequestId,
+  runWithRequestContext,
+} from '../../middleware/requestLogger.js';
+import {
+  paymentsTotal,
+  paymentIdempotencyReplaysTotal,
+  webhookEventsTotal,
+  refundsIssuedTotal,
+} from '../../infrastructure/metrics/index.js';
 
 export const paymentsService = {
   /**
@@ -108,6 +119,7 @@ export const paymentsService = {
 
       // 3. Create payment record (amount strictly from server order total)
       let createdPayment;
+      const checkoutRequestId = getRequestId();
       try {
         createdPayment = await paymentsRepository.createPayment(
           {
@@ -115,6 +127,7 @@ export const paymentsService = {
             amountMinor: order.total_amount_minor,
             currency: order.currency,
             status: 'CREATED',
+            originRequestId: checkoutRequestId,
           },
           tx,
         );
@@ -125,6 +138,8 @@ export const paymentsService = {
         }
         throw err;
       }
+
+      paymentsTotal.inc({ status: 'created' });
 
       // 4. Durably complete idempotency record in the same transaction
       await paymentsRepository.updateIdempotencyKey(
@@ -146,6 +161,7 @@ export const paymentsService = {
 
     // Replays return existing payment state with 200 OK
     if (isReplay) {
+      paymentIdempotencyReplaysTotal.inc();
       return { status: 200, payment };
     }
 
@@ -173,6 +189,8 @@ export const paymentsService = {
         { providerReference: charge.reference },
       );
 
+      paymentsTotal.inc({ status: 'processing' });
+
       return {
         status: 202,
         payment: updated || { ...payment, status: 'PROCESSING', provider_reference: charge.reference },
@@ -187,6 +205,7 @@ export const paymentsService = {
           'PROCESSING',
           { providerReference: `ch_${payment.id}` },
         );
+        paymentsTotal.inc({ status: 'processing' });
         return {
           status: 202,
           payment: { ...payment, status: 'PROCESSING' },
@@ -194,8 +213,9 @@ export const paymentsService = {
         };
       }
 
-      // Synchronous failure from provider (e.g. card declined) -> mark FAILED and release holds
-      logger.error({ paymentId: payment.id, err: err.message }, 'Payment provider rejected charge');
+      // Failure from provider or unreachable transport -> mark FAILED and release holds
+      const isTransportOutage = !err.statusCode;
+      logger.error({ paymentId: payment.id, err: err.message, isTransportOutage }, 'Payment provider charge failed');
       await paymentsRepository.updateStatusGuarded(payment.id, ['PENDING', 'CREATED'], 'FAILED');
       try {
         await reservationsService.releaseOrderReservations(payment.order_id);
@@ -204,6 +224,16 @@ export const paymentsService = {
         logger.error({ cleanupErr: cleanupErr.message }, 'Failed releasing holds on payment rejection');
       }
 
+      if (isTransportOutage) {
+        paymentsTotal.inc({ status: 'provider_unavailable' });
+        throw new AppError(
+          'PROVIDER_UNAVAILABLE',
+          503,
+          'Payment provider is temporarily unavailable',
+        );
+      }
+
+      paymentsTotal.inc({ status: 'failed' });
       throw new AppError(
         'PAYMENT_FAILED',
         400,
@@ -242,8 +272,10 @@ export const paymentsService = {
     const verification = paymentProvider.verifyWebhook(rawBody, headers);
     if (!verification.valid) {
       if (verification.reason === 'STALE_TIMESTAMP') {
+        webhookEventsTotal.inc({ outcome: 'rejected_stale' });
         throw new AppError('STALE_TIMESTAMP', 400, 'Webhook timestamp is older than 5 minutes');
       }
+      webhookEventsTotal.inc({ outcome: 'rejected_signature' });
       throw new AppError('INVALID_SIGNATURE', 401, 'Invalid webhook signature');
     }
 
@@ -272,6 +304,11 @@ export const paymentsService = {
       return { status: 'ignored', reason: 'PAYMENT_NOT_FOUND' };
     }
 
+    // Bind checkout origin_request_id into webhook logs & context (Step 13B Change #8)
+    if (payment.origin_request_id) {
+      setOriginRequestId(payment.origin_request_id);
+    }
+
     // Verify amount and currency match
     if (data.amount_minor !== undefined && data.currency !== undefined) {
       if (
@@ -292,156 +329,181 @@ export const paymentsService = {
 
     const eventStatus = data.status || (type === 'payment.succeeded' ? 'SUCCESS' : 'FAILED');
     let refundNeeded = false;
+    let isDuplicate = false;
+    let processedOutcome = null;
 
-    // 2. Execute everything in ONE transaction
-    await withTx(async (tx) => {
-      // Deduplicate: insert transaction log
-      const txRow = await paymentsRepository.insertTransaction(
-        {
-          paymentId: payment.id,
-          providerEventId: event_id,
-          type: 'WEBHOOK',
-          amountMinor: payment.amount_minor,
-        },
-        tx,
-      );
-
-      // Duplicate event: return early (commit empty tx)
-      if (!txRow) {
-        logger.info({ event_id }, 'Duplicate webhook event received; ignoring');
-        return;
-      }
-
-      // Check current payment status: if already in a terminal state, don't overwrite
-      if (['SUCCESS', 'REFUNDED', 'FAILED'].includes(payment.status)) {
-        logger.info({ paymentId: payment.id, status: payment.status }, 'Payment already in terminal state; ignoring transition');
-        return;
-      }
-
-      if (eventStatus === 'SUCCESS') {
-        // Saga Hook: Transition saga to CONFIRMING (step 4)
-        await ordersService.onPaymentSucceededBeforeConfirm(payment.order_id, tx);
-
-        // Attempt to confirm reservations
-        let confirmError = null;
-        try {
-          await reservationsService.confirmOrderReservations(payment.order_id, tx);
-        } catch (err) {
-          if (err.code === 'HOLD_EXPIRED' || err.statusCode === 410) {
-            confirmError = err;
-          } else {
-            // Any unexpected system/database failure throws and rolls back the entire transaction!
-            throw err;
-          }
-        }
-
-        if (confirmError) {
-          // If confirm threw HOLD_EXPIRED or capacity unavailable:
-          // Money was captured, but booking was lost!
-          // Mark order FAILED, release remaining holds, keep payment SUCCESS, emit 'payment.refund_required'
-          logger.warn(
-            { paymentId: payment.id, err: confirmError.message },
-            'Reservations confirmation failed after payment capture; marking order FAILED and scheduling refund',
-          );
-
-          await reservationsService.releaseOrderReservations(payment.order_id, tx);
-          await ordersService.updateOrderStatus(payment.order_id, ['HELD'], 'FAILED', tx);
-          await ordersService.onBookingRefundRequired(payment.order_id, tx);
-          await paymentsRepository.updateStatusGuarded(
-            payment.id,
-            ['CREATED', 'PENDING', 'PROCESSING'],
-            'SUCCESS',
-            { providerReference: data.reference },
-            tx,
-          );
-
-          await outboxRepository.createEvent(
-            {
-              aggregateId: payment.id,
-              eventType: 'payment.refund_required',
-              payload: {
-                paymentId: payment.id,
-                orderId: payment.order_id,
-                amountMinor: payment.amount_minor,
-                currency: payment.currency,
-                reason: confirmError.message,
-              },
-            },
-            tx,
-          );
-
-          refundNeeded = true;
-        } else {
-          // Confirm succeeded: complete booking
-          await ordersService.updateOrderStatus(payment.order_id, ['HELD'], 'CONFIRMED', tx);
-          await ordersService.onBookingConfirmed(payment.order_id, tx);
-          await paymentsRepository.updateStatusGuarded(
-            payment.id,
-            ['CREATED', 'PENDING', 'PROCESSING'],
-            'SUCCESS',
-            { providerReference: data.reference },
-            tx,
-          );
-
-          await outboxRepository.createEvent(
-            {
-              aggregateId: payment.id,
-              eventType: 'payment.succeeded',
-              payload: {
-                paymentId: payment.id,
-                orderId: payment.order_id,
-                amountMinor: payment.amount_minor,
-                currency: payment.currency,
-              },
-            },
-            tx,
-          );
-
-          await outboxRepository.createEvent(
-            {
-              aggregateId: payment.order_id,
-              eventType: 'order.confirmed',
-              payload: {
-                orderId: payment.order_id,
-                paymentId: payment.id,
-              },
-            },
-            tx,
-          );
-        }
-      } else {
-        // Payment FAILED
-        await reservationsService.releaseOrderReservations(payment.order_id, tx);
-        await ordersService.updateOrderStatus(payment.order_id, ['HELD'], 'FAILED', tx);
-        await ordersService.onPaymentFailed(payment.order_id, tx);
-        await paymentsRepository.updateStatusGuarded(
-          payment.id,
-          ['CREATED', 'PENDING', 'PROCESSING'],
-          'FAILED',
-          { providerReference: data.reference },
-          tx,
-        );
-
-        await outboxRepository.createEvent(
+    await runWithRequestContext({ originRequestId: payment.origin_request_id || null }, async () => {
+      // 2. Execute everything in ONE transaction
+      await withTx(async (tx) => {
+        // Deduplicate: insert transaction log
+        const txRow = await paymentsRepository.insertTransaction(
           {
-            aggregateId: payment.id,
-            eventType: 'payment.failed',
-            payload: {
-              paymentId: payment.id,
-              orderId: payment.order_id,
-            },
+            paymentId: payment.id,
+            providerEventId: event_id,
+            type: 'WEBHOOK',
+            amountMinor: payment.amount_minor,
           },
           tx,
         );
+
+        // Duplicate event: return early (commit empty tx)
+        if (!txRow) {
+          isDuplicate = true;
+          logger.info({ event_id }, 'Duplicate webhook event received; ignoring');
+          return;
+        }
+
+        // Check current payment status: if already in a terminal state, don't overwrite
+        if (['SUCCESS', 'REFUNDED', 'FAILED'].includes(payment.status)) {
+          logger.info({ paymentId: payment.id, status: payment.status }, 'Payment already in terminal state; ignoring transition');
+          return;
+        }
+
+        const originReqPayload = payment.origin_request_id
+          ? { origin_request_id: payment.origin_request_id }
+          : {};
+
+        if (eventStatus === 'SUCCESS') {
+          // Saga Hook: Transition saga to CONFIRMING (step 4)
+          await ordersService.onPaymentSucceededBeforeConfirm(payment.order_id, tx);
+
+          // Attempt to confirm reservations
+          let confirmError = null;
+          try {
+            await reservationsService.confirmOrderReservations(payment.order_id, tx);
+          } catch (err) {
+            if (err.code === 'HOLD_EXPIRED' || err.statusCode === 410) {
+              confirmError = err;
+            } else {
+              // Any unexpected system/database failure throws and rolls back the entire transaction!
+              throw err;
+            }
+          }
+
+          if (confirmError) {
+            // If confirm threw HOLD_EXPIRED or capacity unavailable:
+            // Money was captured, but booking was lost!
+            // Mark order FAILED, release remaining holds, keep payment SUCCESS, emit 'payment.refund_required'
+            logger.warn(
+              { paymentId: payment.id, err: confirmError.message },
+              'Reservations confirmation failed after payment capture; marking order FAILED and scheduling refund',
+            );
+
+            await reservationsService.releaseOrderReservations(payment.order_id, tx);
+            await ordersService.updateOrderStatus(payment.order_id, ['HELD'], 'FAILED', tx);
+            await ordersService.onBookingRefundRequired(payment.order_id, tx);
+            await paymentsRepository.updateStatusGuarded(
+              payment.id,
+              ['CREATED', 'PENDING', 'PROCESSING'],
+              'SUCCESS',
+              { providerReference: data.reference },
+              tx,
+            );
+
+            await outboxRepository.createEvent(
+              {
+                aggregateId: payment.id,
+                eventType: 'payment.refund_required',
+                payload: {
+                  paymentId: payment.id,
+                  orderId: payment.order_id,
+                  amountMinor: payment.amount_minor,
+                  currency: payment.currency,
+                  reason: confirmError.message,
+                  ...originReqPayload,
+                },
+              },
+              tx,
+            );
+
+            refundNeeded = true;
+            processedOutcome = 'succeeded';
+          } else {
+            // Confirm succeeded: complete booking
+            await ordersService.updateOrderStatus(payment.order_id, ['HELD'], 'CONFIRMED', tx);
+            await ordersService.onBookingConfirmed(payment.order_id, tx);
+            await paymentsRepository.updateStatusGuarded(
+              payment.id,
+              ['CREATED', 'PENDING', 'PROCESSING'],
+              'SUCCESS',
+              { providerReference: data.reference },
+              tx,
+            );
+
+            await outboxRepository.createEvent(
+              {
+                aggregateId: payment.id,
+                eventType: 'payment.succeeded',
+                payload: {
+                  paymentId: payment.id,
+                  orderId: payment.order_id,
+                  amountMinor: payment.amount_minor,
+                  currency: payment.currency,
+                  ...originReqPayload,
+                },
+              },
+              tx,
+            );
+
+            await outboxRepository.createEvent(
+              {
+                aggregateId: payment.order_id,
+                eventType: 'order.confirmed',
+                payload: {
+                  orderId: payment.order_id,
+                  paymentId: payment.id,
+                  ...originReqPayload,
+                },
+              },
+              tx,
+            );
+            processedOutcome = 'succeeded';
+          }
+        } else {
+          // Payment FAILED
+          await reservationsService.releaseOrderReservations(payment.order_id, tx);
+          await ordersService.updateOrderStatus(payment.order_id, ['HELD'], 'FAILED', tx);
+          await ordersService.onPaymentFailed(payment.order_id, tx);
+          await paymentsRepository.updateStatusGuarded(
+            payment.id,
+            ['CREATED', 'PENDING', 'PROCESSING'],
+            'FAILED',
+            { providerReference: data.reference },
+            tx,
+          );
+
+          await outboxRepository.createEvent(
+            {
+              aggregateId: payment.id,
+              eventType: 'payment.failed',
+              payload: {
+                paymentId: payment.id,
+                orderId: payment.order_id,
+                ...originReqPayload,
+              },
+            },
+            tx,
+          );
+          processedOutcome = 'failed';
+        }
+      });
+
+      if (isDuplicate) {
+        webhookEventsTotal.inc({ outcome: 'duplicate' });
+      } else {
+        webhookEventsTotal.inc({ outcome: 'processed' });
+        if (processedOutcome) {
+          paymentsTotal.inc({ status: processedOutcome });
+        }
+      }
+
+      // 3. Post-commit: trigger refund if required (Change #2)
+      if (refundNeeded) {
+        await this.triggerRefund(payment).catch((err) => {
+          logger.error({ paymentId: payment.id, err: err.message }, 'Async refund trigger failed; will be retried');
+        });
       }
     });
-
-    // 3. Post-commit: trigger refund if required (Change #2)
-    if (refundNeeded) {
-      await this.triggerRefund(payment).catch((err) => {
-        logger.error({ paymentId: payment.id, err: err.message }, 'Async refund trigger failed; will be retried');
-      });
-    }
 
     return { status: 'processed', event_id };
   },
@@ -463,6 +525,8 @@ export const paymentsService = {
 
     // Guarded update to REFUNDED
     await paymentsRepository.updateStatusGuarded(payment.id, ['SUCCESS'], 'REFUNDED');
+    refundsIssuedTotal.inc();
+    paymentsTotal.inc({ status: 'refunded' });
 
     await outboxRepository.createEvent({
       aggregateId: payment.id,
@@ -472,6 +536,7 @@ export const paymentsService = {
         orderId: payment.order_id,
         refundReference: refund.refund_reference,
         amountMinor: payment.amount_minor,
+        ...(payment.origin_request_id ? { origin_request_id: payment.origin_request_id } : {}),
       },
     });
 
@@ -491,40 +556,43 @@ export const paymentsService = {
       return { status: 'already_terminal', paymentStatus: payment.status };
     }
 
-    const chargeRef = payment.provider_reference || `ch_${payment.id}`;
-    let charge;
-    try {
-      charge = await paymentProvider.getCharge(chargeRef);
-    } catch (err) {
-      logger.warn({ paymentId, err: err.message }, 'Failed to fetch charge from provider during reconciliation');
-      return { status: 'provider_unavailable' };
-    }
+    return runWithRequestContext({ originRequestId: payment.origin_request_id || null }, async () => {
+      const chargeRef = payment.provider_reference || `ch_${payment.id}`;
+      let charge;
+      try {
+        charge = await paymentProvider.getCharge(chargeRef);
+      } catch (err) {
+        logger.warn({ paymentId, err: err.message }, 'Failed to fetch charge from provider during reconciliation');
+        paymentsTotal.inc({ status: 'provider_unavailable' });
+        return { status: 'provider_unavailable' };
+      }
 
-    // Build synthetic webhook payload and run through handleWebhook
-    const syntheticEvent = {
-      event_id: `reconcile_${payment.id}_${Date.now()}`,
-      type: charge.status === 'SUCCESS' ? 'payment.succeeded' : 'payment.failed',
-      data: {
-        reference: chargeRef,
-        status: charge.status,
-        amount_minor: charge.amount_minor,
-        currency: charge.currency,
-      },
-    };
+      // Build synthetic webhook payload and run through handleWebhook
+      const syntheticEvent = {
+        event_id: `reconcile_${payment.id}_${Date.now()}`,
+        type: charge.status === 'SUCCESS' ? 'payment.succeeded' : 'payment.failed',
+        data: {
+          reference: chargeRef,
+          status: charge.status,
+          amount_minor: charge.amount_minor,
+          currency: charge.currency,
+        },
+      };
 
-    const timestamp = Math.floor(Date.now() / 1000);
-    const rawBody = JSON.stringify(syntheticEvent);
-    const signature = crypto
-      .createHmac('sha256', env.PAYMENT_WEBHOOK_SECRET)
-      .update(`${timestamp}.${rawBody}`)
-      .digest('hex');
+      const timestamp = Math.floor(Date.now() / 1000);
+      const rawBody = JSON.stringify(syntheticEvent);
+      const signature = crypto
+        .createHmac('sha256', env.PAYMENT_WEBHOOK_SECRET)
+        .update(`${timestamp}.${rawBody}`)
+        .digest('hex');
 
-    return this.handleWebhook({
-      rawBody,
-      headers: {
-        'x-timestamp': String(timestamp),
-        'x-signature': `t=${timestamp},v1=${signature}`,
-      },
+      return this.handleWebhook({
+        rawBody,
+        headers: {
+          'x-timestamp': String(timestamp),
+          'x-signature': `t=${timestamp},v1=${signature}`,
+        },
+      });
     });
   },
 
@@ -535,13 +603,15 @@ export const paymentsService = {
     const pendingRefunds = await paymentsRepository.findPendingRefunds();
     const results = [];
     for (const payment of pendingRefunds) {
-      try {
-        const res = await this.triggerRefund(payment);
-        results.push({ paymentId: payment.id, status: 'refunded', refund: res });
-      } catch (err) {
-        logger.error({ paymentId: payment.id, err: err.message }, 'Retry pending refund failed');
-        results.push({ paymentId: payment.id, status: 'failed', error: err.message });
-      }
+      await runWithRequestContext({ originRequestId: payment.origin_request_id || null }, async () => {
+        try {
+          const res = await this.triggerRefund(payment);
+          results.push({ paymentId: payment.id, status: 'refunded', refund: res });
+        } catch (err) {
+          logger.error({ paymentId: payment.id, err: err.message }, 'Retry pending refund failed');
+          results.push({ paymentId: payment.id, status: 'failed', error: err.message });
+        }
+      });
     }
     return results;
   },
@@ -553,24 +623,32 @@ export const paymentsService = {
     const stuck = await paymentsRepository.findStuckCreatedOrPending(olderThanSeconds);
     const results = [];
     for (const payment of stuck) {
-      const derivedKey = `charge_${payment.id}`;
-      try {
-        const charge = await paymentProvider.createCharge({
-          amount_minor: payment.amount_minor,
-          currency: payment.currency,
-          idempotencyKey: derivedKey,
-          reference: `ch_${payment.id}`,
-        });
-        await paymentsRepository.updateStatusGuarded(
-          payment.id,
-          ['CREATED', 'PENDING'],
-          'PROCESSING',
-          { providerReference: charge.reference },
-        );
-        results.push({ paymentId: payment.id, status: 'resumed' });
-      } catch (err) {
-        results.push({ paymentId: payment.id, status: 'failed', error: err.message });
-      }
+      await runWithRequestContext({ originRequestId: payment.origin_request_id || null }, async () => {
+        const derivedKey = `charge_${payment.id}`;
+        try {
+          const charge = await paymentProvider.createCharge({
+            amount_minor: payment.amount_minor,
+            currency: payment.currency,
+            idempotencyKey: derivedKey,
+            reference: `ch_${payment.id}`,
+          });
+          const updated = await paymentsRepository.updateStatusGuarded(
+            payment.id,
+            ['CREATED', 'PENDING'],
+            'PROCESSING',
+            { providerReference: charge.reference },
+          );
+          if (updated) {
+            paymentsTotal.inc({ status: 'processing' });
+          }
+          results.push({ paymentId: payment.id, status: 'resumed' });
+        } catch (err) {
+          if (!err?.statusCode) {
+            paymentsTotal.inc({ status: 'provider_unavailable' });
+          }
+          results.push({ paymentId: payment.id, status: 'failed', error: err.message });
+        }
+      });
     }
     return results;
   },

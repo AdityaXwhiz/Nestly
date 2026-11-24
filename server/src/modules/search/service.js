@@ -6,6 +6,7 @@ import {
 import { propertiesService } from '../properties/service.js';
 import { servicesService } from '../services/service.js';
 import { remember, generateSearchCacheKey } from '../../infrastructure/redis/cache.js';
+import { searchDegradedTotal } from '../../infrastructure/metrics/index.js';
 import { logger } from '../../middleware/requestLogger.js';
 import { env } from '../../config/env.js';
 
@@ -169,6 +170,7 @@ export const searchService = {
   },
 
   async executePostgresPropertiesFallback(query = {}) {
+    searchDegradedTotal.inc({ target: 'properties' });
     // Change #5: Do not cache degraded fallback responses
     const result = await propertiesService.listProperties(query, { bypassCache: true });
     return {
@@ -279,6 +281,7 @@ export const searchService = {
   },
 
   async executePostgresServicesFallback(query = {}) {
+    searchDegradedTotal.inc({ target: 'services' });
     // Change #5: Do not cache degraded fallback responses
     const result = await servicesService.listServices(query, { bypassCache: true });
     return {

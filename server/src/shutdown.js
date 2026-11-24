@@ -5,6 +5,7 @@
  */
 export function createGracefulShutdown({
   server,
+  metricsServer = null,
   app,
   pool,
   redis,
@@ -38,6 +39,10 @@ export function createGracefulShutdown({
       }
 
       try {
+        if (metricsServer?.close) {
+          await new Promise((resolve) => metricsServer.close(() => resolve()));
+          metricsServer.closeIdleConnections?.();
+        }
         const cleanupPromises = [];
         if (pool?.end) {
           cleanupPromises.push(pool.end());

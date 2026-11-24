@@ -1,0 +1,99 @@
+{
+  "uid": "nestly-03-payments",
+  "title": "Nestly 03 - Payments, Webhooks & Refunds",
+  "tags": ["nestly", "payments"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Payments Rate by Status",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(nestly_payments_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Webhook Outcomes Rate",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(nestly_webhook_events_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Payment Idempotency Replays",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(nestly_payment_idempotency_replays_total)",
+          "legendFormat": "replays"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Refunds Issued",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(nestly_refunds_issued_total)",
+          "legendFormat": "refunds"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Payments Stuck PROCESSING",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(nestly_payments_stuck_processing_count)",
+          "legendFormat": "stuck count"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Oldest Stuck Payment Age (s)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(nestly_payments_stuck_oldest_age_seconds)",
+          "legendFormat": "oldest stuck age"
+        }
+      ]
+    }
+  ]
+}

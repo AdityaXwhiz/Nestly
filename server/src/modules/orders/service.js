@@ -7,6 +7,7 @@ import { paymentsService } from '../payments/service.js';
 import { withTx } from '../../infrastructure/postgres.js';
 import { AppError } from '../../errors/AppError.js';
 import { logger } from '../../middleware/requestLogger.js';
+import { ordersTotal } from '../../infrastructure/metrics/index.js';
 
 export const ordersService = {
   /**
@@ -143,6 +144,8 @@ export const ordersService = {
         tx,
       );
     });
+
+    ordersTotal.inc({ status: 'created' });
 
     return {
       ...createdOrder,
@@ -292,6 +295,10 @@ export const ordersService = {
    * Guarded update of order status across module boundaries.
    */
   async updateOrderStatus(id, fromStatus, toStatus, client = undefined) {
-    return ordersRepository.updateStatusGuarded(id, fromStatus, toStatus, {}, client);
+    const updated = await ordersRepository.updateStatusGuarded(id, fromStatus, toStatus, {}, client);
+    if (updated && (toStatus === 'CONFIRMED' || toStatus === 'FAILED')) {
+      ordersTotal.inc({ status: toStatus.toLowerCase() });
+    }
+    return updated;
   },
 };

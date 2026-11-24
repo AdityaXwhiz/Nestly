@@ -1,0 +1,99 @@
+{
+  "uid": "nestly-02-booking",
+  "title": "Nestly 02 - Booking, Reservations & Sagas",
+  "tags": ["nestly", "booking"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Orders Rate by Status",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(nestly_orders_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total Orders by Status (Cumulative)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (nestly_orders_total)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Reservation Outcomes Rate",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(nestly_reservations_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Saga Compensations & Recoveries Rate",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(nestly_saga_outcomes_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Stale Non-Terminal Sagas",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(nestly_sagas_stale_non_terminal_count)",
+          "legendFormat": "stale sagas"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Reservation Totals (Cumulative)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (nestly_reservations_total)",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    }
+  ]
+}

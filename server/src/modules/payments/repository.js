@@ -72,14 +72,14 @@ export const paymentsRepository = {
 
   // ------------------ Payments ------------------
   async createPayment(
-    { orderId, amountMinor, currency, status = 'CREATED', providerReference = null },
+    { orderId, amountMinor, currency, status = 'CREATED', providerReference = null, originRequestId = null },
     client = db,
   ) {
     const query = `
       INSERT INTO payments (
-        order_id, amount_minor, currency, status, provider_reference
+        order_id, amount_minor, currency, status, provider_reference, origin_request_id
       )
-      VALUES ($1, $2, $3, $4, $5)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *;
     `;
     const res = await client.query(query, [
@@ -88,6 +88,7 @@ export const paymentsRepository = {
       currency,
       status,
       providerReference,
+      originRequestId,
     ]);
     return res.rows[0];
   },

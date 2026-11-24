@@ -1,0 +1,85 @@
+{
+  "uid": "nestly-05-dependencies",
+  "title": "Nestly 05 - Dependencies, Cache, Locks & Search",
+  "tags": ["nestly", "dependencies", "redis", "search"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Dependency Health Probes (1 = Up, 0 = Down)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dependency) (nestly_dependency_up)",
+          "legendFormat": "{{dependency}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Redis Cache Operations (hit / miss / bypass)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (resource, outcome) (rate(nestly_cache_operations_total[5m]))",
+          "legendFormat": "{{resource}}:{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Redis Lock Outcomes (acquired / busy / unavailable)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(nestly_redis_lock_outcomes_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Search Degraded Fallbacks (to PostgreSQL)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (target) (rate(nestly_search_degraded_total[5m]))",
+          "legendFormat": "{{target}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Scrape Target Availability (up)",
+      "datasource": { "type": "prometheus", "uid": "nestly-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "min by (job, instance) (up)",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    }
+  ]
+}

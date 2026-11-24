@@ -18,6 +18,18 @@ const envSchema = z.object({
     .pipe(z.number().int().min(1).max(65535))
     .default('3000'),
 
+  API_METRICS_PORT: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(65535))
+    .default('9100'),
+
+  WORKER_METRICS_PORT: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(65535))
+    .default('9101'),
+
   TRUST_PROXY: z
     .string()
     .default('false'),

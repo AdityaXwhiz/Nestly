@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: Nestly Dashboards
+    orgId: 1
+    folder: Nestly
+    type: file
+    disableDeletion: true
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

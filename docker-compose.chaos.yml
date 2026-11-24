@@ -1,0 +1,10 @@
+# Chaos-only Compose overlay (Change #4): uses prometheus.chaos.yml + alerts.chaos.yml with short "for:" durations.
+services:
+  prometheus:
+    command:
+      - "--config.file=/etc/prometheus/prometheus.chaos.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./infrastructure/observability/prometheus/prometheus.chaos.yml:/etc/prometheus/prometheus.chaos.yml:ro
+      - ./infrastructure/observability/prometheus/alerts.chaos.yml:/etc/prometheus/alerts.chaos.yml:ro

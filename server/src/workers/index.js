@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import { withTx, pool } from '../infrastructure/postgres.js';
+import { redis } from '../infrastructure/redis.js';
 import { publishOutbox } from '../modules/outbox/publisher.js';
 import { outboxRepository } from '../modules/outbox/repository.js';
 import { sagaOrchestrator } from '../modules/orders/saga.js';
@@ -13,6 +14,12 @@ import { createProviderActionConsumer } from './consumers/providerActionConsumer
 import { createAnalyticsConsumer } from './consumers/analyticsConsumer.js';
 import { createSearchIndexConsumer } from './consumers/searchIndexConsumer.js';
 import { ensureAliasesExist } from '../infrastructure/opensearch/setupIndices.js';
+import { startMetricsServer } from '../infrastructure/metrics/server.js';
+import { collectSchedulerGauges } from '../infrastructure/metrics/collector.js';
+import {
+  workerSchedulerTickDurationSeconds,
+  workerSchedulerSkippedTotal,
+} from '../infrastructure/metrics/index.js';
 import { logger } from '../middleware/requestLogger.js';
 import { env } from '../config/env.js';
 
@@ -34,18 +41,25 @@ export const ADVISORY_LOCK_DLQ_MONITOR = 1007;
  *   batches are small, and ticks enforce a max duration (Change #4).
  */
 export async function runSchedulerTick(lockId, taskName, taskFn) {
-  return withTx(async (tx) => {
-    const res = await tx.query('SELECT pg_try_advisory_xact_lock($1) AS locked;', [lockId]);
-    const acquired = res.rows[0]?.locked;
+  const startNs = process.hrtime.bigint();
+  try {
+    return await withTx(async (tx) => {
+      const res = await tx.query('SELECT pg_try_advisory_xact_lock($1) AS locked;', [lockId]);
+      const acquired = res.rows[0]?.locked;
 
-    if (!acquired) {
-      logger.debug({ taskName }, 'Advisory lock busy; tick skipped by this worker');
-      return { skipped: true, reason: 'LOCK_BUSY' };
-    }
+      if (!acquired) {
+        workerSchedulerSkippedTotal.inc({ task: taskName });
+        logger.debug({ taskName }, 'Advisory lock busy; tick skipped by this worker');
+        return { skipped: true, reason: 'LOCK_BUSY' };
+      }
 
-    const result = await taskFn(tx);
-    return { skipped: false, result };
-  });
+      const result = await taskFn(tx);
+      return { skipped: false, result };
+    });
+  } finally {
+    const durationSec = Number(process.hrtime.bigint() - startNs) / 1e9;
+    workerSchedulerTickDurationSeconds.observe({ task: taskName }, durationSec);
+  }
 }
 
 /**
@@ -191,13 +205,23 @@ export function startWorker({
   notificationRetryIntervalMs = 60000,
   cleanupIntervalMs = 300000,
   dlqMonitorIntervalMs = 60000,
+  collectorIntervalMs = 10000,
   consumerOptions = {},
   closePoolOnStop = false,
   heartbeatFile = env.NODE_ENV !== 'test' ? '/tmp/worker-heartbeat' : null,
+  metricsPort = env.NODE_ENV !== 'test' ? env.WORKER_METRICS_PORT : null,
 } = {}) {
   const enabledRoles = parseWorkerRoles(roles);
   const intervals = [];
   const consumers = [];
+  let metricsServer = null;
+
+  if (metricsPort) {
+    metricsServer = startMetricsServer({
+      port: metricsPort,
+      label: `worker:${[...enabledRoles].join(',')}`,
+    });
+  }
 
   logger.info(
     { roles: [...enabledRoles] },
@@ -278,6 +302,18 @@ export function startWorker({
         );
       }, dlqMonitorIntervalMs),
     );
+
+    // Periodic collector gauges run ONLY in schedulers role (Changes #2 & #3)
+    collectSchedulerGauges().catch((err) =>
+      logger.warn({ err: err.message }, 'Scheduler metrics collector error'),
+    );
+    const collectorTimer = setInterval(() => {
+      collectSchedulerGauges().catch((err) =>
+        logger.warn({ err: err.message }, 'Scheduler metrics collector error'),
+      );
+    }, collectorIntervalMs);
+    collectorTimer.unref();
+    intervals.push(collectorTimer);
   }
 
   // Role 3: Notification Consumer
@@ -351,8 +387,16 @@ export function startWorker({
 
     await Promise.allSettled(consumers.map((c) => c.stop()));
 
+    if (metricsServer?.close) {
+      await new Promise((resolve) => metricsServer.close(() => resolve()));
+      metricsServer.closeIdleConnections?.();
+    }
+
     if (closePoolOnStop || exitProcess) {
-      await pool.end().catch(() => {});
+      await Promise.allSettled([
+        pool.end().catch(() => {}),
+        redis.status !== 'end' ? redis.quit().catch(() => {}) : Promise.resolve(),
+      ]);
     }
 
     if (forceTimer) {
