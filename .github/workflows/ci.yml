@@ -156,6 +156,18 @@ jobs:
           SMOKE_BASE_URL: http://localhost:8080
         run: npm run smoke
 
+      - name: Run 10-second k6 smoke (loose error-rate threshold only)
+        run: |
+          docker run --rm --network host \
+            -v "${{ github.workspace }}/load-tests/k6:/scripts:ro" \
+            -e API_BASE=http://localhost:8080/api/v1 \
+            grafana/k6:0.55.0 run /scripts/00-smoke.js
+
+      - name: Verify database and SQS invariants after smoke load
+        run: |
+          docker compose -f docker-compose.prod.yml exec -T worker-scheduler \
+            node scripts/verifyInvariants.js --timeout-ms 15000
+
       - name: Collect docker compose logs on failure
         if: failure()
         run: docker compose -f docker-compose.prod.yml logs --no-color > prod-compose-logs.txt || true
@@ -170,3 +182,14 @@ jobs:
       - name: Tear down prod compose stack
         if: always()
         run: docker compose -f docker-compose.prod.yml down -v || true
+
+  terraform-validate:
+    name: Validate AWS Terraform IaC (fmt, validate, tflint, checkov, test, offline plan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Run Terraform validation, lint, Checkov, mock tests, and offline plan (never applies)
+        run: bash infrastructure/aws/scripts/validate.sh

@@ -1,0 +1,87 @@
+# Isolated Load-Test Stack (Step 13C)
+#
+# Usage:
+#   docker compose --env-file .env.loadtest -p nestly-load -f docker-compose.prod.yml -f docker-compose.loadtest.yml up -d --wait
+#
+# Differences from docker-compose.prod.yml:
+# 1. Separate compose project name `nestly-load` (isolated volumes, containers, and network).
+# 2. Raised auth rate limits (RATE_LIMIT_AUTH_MAX=10000/60s) & longer JWT_TTL (2h) for pool tokens.
+# 3. Configurable DB_POOL_MAX (default 10) and explicit CPU/RAM limits on Postgres, API, workers, Redis, mock-provider, client.
+# 4. API_UPSTREAM_RESOLVER=127.0.0.11 on Nginx and deploy.replicas=${API_REPLICAS:-1} on api (no container_name on scalable services).
+# 5. ENABLE_MOCK_STATS=true on mock-provider so load/invariant scripts can query GET /stats.
+# 6. prometheus uses prometheus.loadtest.yml (5s scrape + dns_sd_configs for multi-replica API).
+
+name: nestly-load
+
+x-loadtest-env: &loadtest-env
+  COMPOSE_PROJECT_NAME: nestly-load
+  LOADTEST_ENABLED: ${LOADTEST_ENABLED:-false}
+  RATE_LIMIT_AUTH_MAX: ${RATE_LIMIT_AUTH_MAX:-10000}
+  RATE_LIMIT_AUTH_WINDOW_SEC: ${RATE_LIMIT_AUTH_WINDOW_SEC:-60}
+  JWT_TTL: ${JWT_TTL:-2h}
+  DB_POOL_MAX: ${LOADTEST_DB_POOL_MAX:-10}
+  HOLD_TTL_SECONDS: ${LOADTEST_HOLD_TTL_SECONDS:-300}
+  SAGA_STALE_SECONDS: ${LOADTEST_SAGA_STALE_SECONDS:-60}
+  LOG_LEVEL: ${LOADTEST_LOG_LEVEL:-warn}
+
+services:
+  postgres:
+    cpus: 1.0
+    mem_limit: 512m
+    command: ["postgres", "-c", "max_connections=100"]
+
+  redis:
+    cpus: 0.5
+    mem_limit: 256m
+
+  mock-provider:
+    cpus: 0.5
+    mem_limit: 256m
+    environment:
+      ENABLE_MOCK_STATS: "true"
+      WEBHOOK_TARGET_URL: http://client:8080/api/v1/payments/webhook
+
+  migrate:
+    environment:
+      <<: *loadtest-env
+
+  init:
+    environment:
+      <<: *loadtest-env
+
+  api:
+    cpus: ${LOADTEST_API_CPUS:-0.5}
+    mem_limit: ${LOADTEST_API_MEM:-256m}
+    deploy:
+      replicas: ${API_REPLICAS:-1}
+    environment:
+      <<: *loadtest-env
+
+  worker-scheduler:
+    cpus: 0.5
+    mem_limit: 256m
+    environment:
+      <<: *loadtest-env
+
+  worker-consumer:
+    cpus: 0.5
+    mem_limit: 256m
+    environment:
+      <<: *loadtest-env
+
+  client:
+    cpus: 1.0
+    mem_limit: 128m
+    environment:
+      API_BASE_URL: /api/v1
+      API_UPSTREAM_RESOLVER: "127.0.0.11"
+
+  prometheus:
+    command:
+      - "--config.file=/etc/prometheus/prometheus.loadtest.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./infrastructure/observability/prometheus/prometheus.loadtest.yml:/etc/prometheus/prometheus.loadtest.yml:ro
+      - ./infrastructure/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prod_prometheus_data:/prometheus

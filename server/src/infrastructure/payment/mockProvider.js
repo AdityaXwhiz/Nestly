@@ -11,6 +11,15 @@ const SECRET = env.PAYMENT_WEBHOOK_SECRET;
 
 const charges = new Map();
 const refunds = new Map();
+const acceptedChargeKeys = new Set();
+const attemptedChargeKeys = new Set();
+const declinedChargeKeys = new Set();
+const timeoutChargeKeys = new Set();
+let totalChargeHttpRequests = 0;
+
+function isStatsEnabled() {
+  return process.env.NODE_ENV !== 'production' || process.env.ENABLE_MOCK_STATS === 'true';
+}
 
 function sendSignedWebhook(payload) {
   const rawBody = JSON.stringify(payload);
@@ -38,20 +47,26 @@ app.post('/charges', async (req, res) => {
     return res.status(400).json({ code: 'MISSING_IDEMPOTENCY_KEY', message: 'Idempotency-Key header required' });
   }
 
+  totalChargeHttpRequests += 1;
+
   if (charges.has(idempotencyKey)) {
     return res.status(200).json(charges.get(idempotencyKey));
   }
+
+  attemptedChargeKeys.add(idempotencyKey);
 
   const { amount_minor, currency, reference, metadata = {} } = req.body;
 
   // Failure scenario: timeout (never answers)
   if (metadata.scenario === 'timeout') {
+    timeoutChargeKeys.add(idempotencyKey);
     // Keep connection hanging
     return;
   }
 
   // Failure scenario: immediate fail
   if (metadata.scenario === 'fail') {
+    declinedChargeKeys.add(idempotencyKey);
     return res.status(400).json({
       code: 'CARD_DECLINED',
       message: 'Card was declined by issuing bank',
@@ -71,6 +86,7 @@ app.post('/charges', async (req, res) => {
 
   charges.set(idempotencyKey, charge);
   charges.set(chargeReference, charge);
+  acceptedChargeKeys.add(idempotencyKey);
 
   // Respond immediately with 200/202
   res.status(200).json(charge);
@@ -130,6 +146,34 @@ app.post('/refunds', (req, res) => {
 
   refunds.set(idempotencyKey, refund);
   res.status(200).json(refund);
+});
+
+app.get('/stats', (_req, res) => {
+  if (!isStatsEnabled()) {
+    return res.status(404).json({ code: 'NOT_FOUND', message: 'Not found' });
+  }
+  return res.json({
+    chargesCount: acceptedChargeKeys.size,
+    chargesAttempted: attemptedChargeKeys.size,
+    chargesDeclined: declinedChargeKeys.size,
+    chargesTimedOut: timeoutChargeKeys.size,
+    totalChargeHttpRequests,
+    refundsCount: refunds.size,
+  });
+});
+
+app.post('/stats/reset', (_req, res) => {
+  if (!isStatsEnabled()) {
+    return res.status(404).json({ code: 'NOT_FOUND', message: 'Not found' });
+  }
+  charges.clear();
+  refunds.clear();
+  acceptedChargeKeys.clear();
+  attemptedChargeKeys.clear();
+  declinedChargeKeys.clear();
+  timeoutChargeKeys.clear();
+  totalChargeHttpRequests = 0;
+  return res.json({ status: 'reset' });
 });
 
 app.get('/healthz', (_req, res) => {

@@ -1,0 +1,17 @@
+project_name                  = "nestly"
+environment                   = "dev"
+aws_region                    = "us-east-1"
+aws_account_id                = "123456789012"
+azs                           = ["us-east-1a", "us-east-1b"]
+cloudfront_prefix_list_id     = "pl-3b927c52"
+single_nat_gateway            = true
+enable_opensearch             = false
+enable_waf                    = false
+enable_mock_payment_provider  = false
+deletion_protection           = true
+rds_multi_az                  = false
+redis_num_nodes               = 1
+api_desired_count             = 2
+worker_consumer_desired_count = 1
+github_repo                   = "AdityaXwhiz/Nestly"
+github_environment            = "production"

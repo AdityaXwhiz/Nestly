@@ -57,6 +57,10 @@ export const searchService = {
     query = {},
     { client = openSearchClient, indexPrefix = env.OPENSEARCH_INDEX_PREFIX } = {},
   ) {
+    if (!client) {
+      return searchService.executePostgresPropertiesFallback(query);
+    }
+
     const cacheKey = generateSearchCacheKey('search:properties', query);
 
     try {
@@ -188,6 +192,10 @@ export const searchService = {
     query = {},
     { client = openSearchClient, indexPrefix = env.OPENSEARCH_INDEX_PREFIX } = {},
   ) {
+    if (!client) {
+      return searchService.executePostgresServicesFallback(query);
+    }
+
     const cacheKey = generateSearchCacheKey('search:services', query);
 
     try {

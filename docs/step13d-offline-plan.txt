@@ -1,0 +1,4420 @@
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # random_password.origin_verify will be created
+  + resource "random_password" "origin_verify" {
+      + bcrypt_hash = (sensitive value)
+      + id          = (known after apply)
+      + length      = 48
+      + lower       = true
+      + min_lower   = 0
+      + min_numeric = 0
+      + min_special = 0
+      + min_upper   = 0
+      + number      = true
+      + numeric     = true
+      + result      = (sensitive value)
+      + special     = false
+      + upper       = true
+    }
+
+  # module.ci_deploy.aws_iam_openid_connect_provider.github will be created
+  + resource "aws_iam_openid_connect_provider" "github" {
+      + arn             = (known after apply)
+      + client_id_list  = [
+          + "sts.amazonaws.com",
+        ]
+      + id              = (known after apply)
+      + tags            = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-github-oidc"
+          + "Project"     = "nestly"
+        }
+      + tags_all        = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-github-oidc"
+          + "Project"     = "nestly"
+        }
+      + thumbprint_list = [
+          + "6938fd4d98bab03faadb97b34396831e3780aea1",
+          + "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
+        ]
+      + url             = "https://token.actions.githubusercontent.com"
+    }
+
+  # module.ci_deploy.aws_iam_role.github_deploy will be created
+  + resource "aws_iam_role" "github_deploy" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = (known after apply)
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "nestly-dev-github-deploy-role"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # module.ci_deploy.aws_iam_role_policy.github_deploy will be created
+  + resource "aws_iam_role_policy" "github_deploy" {
+      + id          = (known after apply)
+      + name        = "nestly-dev-github-deploy-policy"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.compute.aws_appautoscaling_policy.api_cpu will be created
+  + resource "aws_appautoscaling_policy" "api_cpu" {
+      + alarm_arns         = (known after apply)
+      + arn                = (known after apply)
+      + id                 = (known after apply)
+      + name               = "nestly-dev-api-cpu-scaling"
+      + policy_type        = "TargetTrackingScaling"
+      + resource_id        = "service/nestly-dev-cluster/nestly-dev-api"
+      + scalable_dimension = "ecs:service:DesiredCount"
+      + service_namespace  = "ecs"
+
+      + target_tracking_scaling_policy_configuration {
+          + disable_scale_in   = false
+          + scale_in_cooldown  = 120
+          + scale_out_cooldown = 60
+          + target_value       = 60
+
+          + predefined_metric_specification {
+              + predefined_metric_type = "ECSServiceAverageCPUUtilization"
+            }
+        }
+    }
+
+  # module.compute.aws_appautoscaling_policy.worker_consumer_sqs_depth will be created
+  + resource "aws_appautoscaling_policy" "worker_consumer_sqs_depth" {
+      + alarm_arns         = (known after apply)
+      + arn                = (known after apply)
+      + id                 = (known after apply)
+      + name               = "nestly-dev-consumer-sqs-backlog"
+      + policy_type        = "TargetTrackingScaling"
+      + resource_id        = "service/nestly-dev-cluster/nestly-dev-worker-consumer"
+      + scalable_dimension = "ecs:service:DesiredCount"
+      + service_namespace  = "ecs"
+
+      + target_tracking_scaling_policy_configuration {
+          + disable_scale_in   = false
+          + scale_in_cooldown  = 180
+          + scale_out_cooldown = 60
+          + target_value       = 50
+
+          + customized_metric_specification {
+              + metrics {
+                  + id          = "q_notif"
+                  + label       = "Notifications queue depth"
+                  + return_data = false
+                    # (1 unchanged attribute hidden)
+
+                  + metric_stat {
+                      + stat = "Sum"
+                        # (1 unchanged attribute hidden)
+
+                      + metric {
+                          + metric_name = "ApproximateNumberOfMessagesVisible"
+                          + namespace   = "AWS/SQS"
+
+                          + dimensions {
+                              + name  = "QueueName"
+                              + value = "nestly-dev-notifications"
+                            }
+                        }
+                    }
+                }
+              + metrics {
+                  + id          = "q_provider"
+                  + label       = "Provider actions queue depth"
+                  + return_data = false
+                    # (1 unchanged attribute hidden)
+
+                  + metric_stat {
+                      + stat = "Sum"
+                        # (1 unchanged attribute hidden)
+
+                      + metric {
+                          + metric_name = "ApproximateNumberOfMessagesVisible"
+                          + namespace   = "AWS/SQS"
+
+                          + dimensions {
+                              + name  = "QueueName"
+                              + value = "nestly-dev-provider-actions"
+                            }
+                        }
+                    }
+                }
+              + metrics {
+                  + expression  = "q_notif + q_provider"
+                  + id          = "total_backlog"
+                  + label       = "Combined critical SQS backlog"
+                  + return_data = true
+                }
+            }
+        }
+    }
+
+  # module.compute.aws_appautoscaling_target.api will be created
+  + resource "aws_appautoscaling_target" "api" {
+      + arn                = (known after apply)
+      + id                 = (known after apply)
+      + max_capacity       = 6
+      + min_capacity       = 2
+      + resource_id        = "service/nestly-dev-cluster/nestly-dev-api"
+      + role_arn           = (known after apply)
+      + scalable_dimension = "ecs:service:DesiredCount"
+      + service_namespace  = "ecs"
+      + tags_all           = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+
+      + suspended_state (known after apply)
+    }
+
+  # module.compute.aws_appautoscaling_target.worker_consumer will be created
+  + resource "aws_appautoscaling_target" "worker_consumer" {
+      + arn                = (known after apply)
+      + id                 = (known after apply)
+      + max_capacity       = 6
+      + min_capacity       = 1
+      + resource_id        = "service/nestly-dev-cluster/nestly-dev-worker-consumer"
+      + role_arn           = (known after apply)
+      + scalable_dimension = "ecs:service:DesiredCount"
+      + service_namespace  = "ecs"
+      + tags_all           = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+
+      + suspended_state (known after apply)
+    }
+
+  # module.compute.aws_cloudwatch_log_group.api will be created
+  + resource "aws_cloudwatch_log_group" "api" {
+      + arn               = (known after apply)
+      + id                = (known after apply)
+      + log_group_class   = (known after apply)
+      + name              = "/aws/ecs/nestly-dev/api"
+      + name_prefix       = (known after apply)
+      + retention_in_days = 30
+      + skip_destroy      = false
+      + tags              = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+    }
+
+  # module.compute.aws_cloudwatch_log_group.init will be created
+  + resource "aws_cloudwatch_log_group" "init" {
+      + arn               = (known after apply)
+      + id                = (known after apply)
+      + log_group_class   = (known after apply)
+      + name              = "/aws/ecs/nestly-dev/init"
+      + name_prefix       = (known after apply)
+      + retention_in_days = 30
+      + skip_destroy      = false
+      + tags              = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+    }
+
+  # module.compute.aws_cloudwatch_log_group.worker will be created
+  + resource "aws_cloudwatch_log_group" "worker" {
+      + arn               = (known after apply)
+      + id                = (known after apply)
+      + log_group_class   = (known after apply)
+      + name              = "/aws/ecs/nestly-dev/worker"
+      + name_prefix       = (known after apply)
+      + retention_in_days = 30
+      + skip_destroy      = false
+      + tags              = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+    }
+
+  # module.compute.aws_ecr_lifecycle_policy.server will be created
+  + resource "aws_ecr_lifecycle_policy" "server" {
+      + id          = (known after apply)
+      + policy      = jsonencode(
+            {
+              + rules = [
+                  + {
+                      + action       = {
+                          + type = "expire"
+                        }
+                      + description  = "Expire untagged images older than 7 days"
+                      + rulePriority = 1
+                      + selection    = {
+                          + countNumber = 7
+                          + countType   = "sinceImagePushed"
+                          + countUnit   = "days"
+                          + tagStatus   = "untagged"
+                        }
+                    },
+                  + {
+                      + action       = {
+                          + type = "expire"
+                        }
+                      + description  = "Keep last 10 tagged server images"
+                      + rulePriority = 2
+                      + selection    = {
+                          + countNumber   = 10
+                          + countType     = "imageCountMoreThan"
+                          + tagPrefixList = [
+                              + "sha-",
+                              + "v",
+                              + "release-",
+                              + "initial",
+                            ]
+                          + tagStatus     = "tagged"
+                        }
+                    },
+                ]
+            }
+        )
+      + registry_id = (known after apply)
+      + repository  = "nestly-dev-nestly-server"
+    }
+
+  # module.compute.aws_ecr_repository.server will be created
+  + resource "aws_ecr_repository" "server" {
+      + arn                  = (known after apply)
+      + force_delete         = false
+      + id                   = (known after apply)
+      + image_tag_mutability = "IMMUTABLE"
+      + name                 = "nestly-dev-nestly-server"
+      + registry_id          = (known after apply)
+      + repository_url       = (known after apply)
+      + tags                 = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-nestly-server"
+          + "Project"     = "nestly"
+        }
+      + tags_all             = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-nestly-server"
+          + "Project"     = "nestly"
+        }
+
+      + encryption_configuration {
+          + encryption_type = "AES256"
+          + kms_key         = (known after apply)
+        }
+
+      + image_scanning_configuration {
+          + scan_on_push = true
+        }
+    }
+
+  # module.compute.aws_ecs_cluster.main will be created
+  + resource "aws_ecs_cluster" "main" {
+      + arn      = (known after apply)
+      + id       = (known after apply)
+      + name     = "nestly-dev-cluster"
+      + tags     = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-cluster"
+          + "Project"     = "nestly"
+        }
+      + tags_all = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-cluster"
+          + "Project"     = "nestly"
+        }
+
+      + setting {
+          + name  = "containerInsights"
+          + value = "enabled"
+        }
+    }
+
+  # module.compute.aws_ecs_service.api will be created
+  + resource "aws_ecs_service" "api" {
+      + availability_zone_rebalancing      = "DISABLED"
+      + cluster                            = (known after apply)
+      + deployment_maximum_percent         = 200
+      + deployment_minimum_healthy_percent = 100
+      + desired_count                      = 2
+      + enable_ecs_managed_tags            = false
+      + enable_execute_command             = false
+      + health_check_grace_period_seconds  = 30
+      + iam_role                           = (known after apply)
+      + id                                 = (known after apply)
+      + launch_type                        = "FARGATE"
+      + name                               = "nestly-dev-api"
+      + platform_version                   = (known after apply)
+      + scheduling_strategy                = "REPLICA"
+      + tags                               = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                           = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + task_definition                    = (known after apply)
+      + triggers                           = (known after apply)
+      + wait_for_steady_state              = false
+
+      + deployment_circuit_breaker {
+          + enable   = true
+          + rollback = true
+        }
+
+      + load_balancer {
+          + container_name   = "api"
+          + container_port   = 3000
+          + target_group_arn = (known after apply)
+            # (1 unchanged attribute hidden)
+        }
+
+      + network_configuration {
+          + assign_public_ip = false
+          + security_groups  = (known after apply)
+          + subnets          = (known after apply)
+        }
+    }
+
+  # module.compute.aws_ecs_service.worker_consumer will be created
+  + resource "aws_ecs_service" "worker_consumer" {
+      + availability_zone_rebalancing      = "DISABLED"
+      + cluster                            = (known after apply)
+      + deployment_maximum_percent         = 200
+      + deployment_minimum_healthy_percent = 100
+      + desired_count                      = 1
+      + enable_ecs_managed_tags            = false
+      + enable_execute_command             = false
+      + iam_role                           = (known after apply)
+      + id                                 = (known after apply)
+      + launch_type                        = "FARGATE"
+      + name                               = "nestly-dev-worker-consumer"
+      + platform_version                   = (known after apply)
+      + scheduling_strategy                = "REPLICA"
+      + tags                               = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                           = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + task_definition                    = (known after apply)
+      + triggers                           = (known after apply)
+      + wait_for_steady_state              = false
+
+      + deployment_circuit_breaker {
+          + enable   = true
+          + rollback = true
+        }
+
+      + network_configuration {
+          + assign_public_ip = false
+          + security_groups  = (known after apply)
+          + subnets          = (known after apply)
+        }
+    }
+
+  # module.compute.aws_ecs_service.worker_scheduler will be created
+  + resource "aws_ecs_service" "worker_scheduler" {
+      + availability_zone_rebalancing      = "DISABLED"
+      + cluster                            = (known after apply)
+      + deployment_maximum_percent         = 200
+      + deployment_minimum_healthy_percent = 100
+      + desired_count                      = 1
+      + enable_ecs_managed_tags            = false
+      + enable_execute_command             = false
+      + iam_role                           = (known after apply)
+      + id                                 = (known after apply)
+      + launch_type                        = "FARGATE"
+      + name                               = "nestly-dev-worker-scheduler"
+      + platform_version                   = (known after apply)
+      + scheduling_strategy                = "REPLICA"
+      + tags                               = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                           = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + task_definition                    = (known after apply)
+      + triggers                           = (known after apply)
+      + wait_for_steady_state              = false
+
+      + deployment_circuit_breaker {
+          + enable   = true
+          + rollback = true
+        }
+
+      + network_configuration {
+          + assign_public_ip = false
+          + security_groups  = (known after apply)
+          + subnets          = (known after apply)
+        }
+    }
+
+  # module.compute.aws_ecs_task_definition.api will be created
+  + resource "aws_ecs_task_definition" "api" {
+      + arn                      = (known after apply)
+      + arn_without_revision     = (known after apply)
+      + container_definitions    = (known after apply)
+      + cpu                      = "512"
+      + enable_fault_injection   = (known after apply)
+      + execution_role_arn       = (known after apply)
+      + family                   = "nestly-dev-api"
+      + id                       = (known after apply)
+      + memory                   = "1024"
+      + network_mode             = "awsvpc"
+      + requires_compatibilities = [
+          + "FARGATE",
+        ]
+      + revision                 = (known after apply)
+      + skip_destroy             = false
+      + tags                     = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                 = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + task_role_arn            = (known after apply)
+      + track_latest             = false
+
+      + volume {
+          + configure_at_launch = (known after apply)
+          + name                = "tmp"
+            # (1 unchanged attribute hidden)
+        }
+    }
+
+  # module.compute.aws_ecs_task_definition.init will be created
+  + resource "aws_ecs_task_definition" "init" {
+      + arn                      = (known after apply)
+      + arn_without_revision     = (known after apply)
+      + container_definitions    = (known after apply)
+      + cpu                      = "256"
+      + enable_fault_injection   = (known after apply)
+      + execution_role_arn       = (known after apply)
+      + family                   = "nestly-dev-init"
+      + id                       = (known after apply)
+      + memory                   = "512"
+      + network_mode             = "awsvpc"
+      + requires_compatibilities = [
+          + "FARGATE",
+        ]
+      + revision                 = (known after apply)
+      + skip_destroy             = false
+      + tags                     = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                 = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + task_role_arn            = (known after apply)
+      + track_latest             = false
+
+      + volume {
+          + configure_at_launch = (known after apply)
+          + name                = "tmp"
+            # (1 unchanged attribute hidden)
+        }
+    }
+
+  # module.compute.aws_ecs_task_definition.worker_consumer will be created
+  + resource "aws_ecs_task_definition" "worker_consumer" {
+      + arn                      = (known after apply)
+      + arn_without_revision     = (known after apply)
+      + container_definitions    = (known after apply)
+      + cpu                      = "256"
+      + enable_fault_injection   = (known after apply)
+      + execution_role_arn       = (known after apply)
+      + family                   = "nestly-dev-worker-consumer"
+      + id                       = (known after apply)
+      + memory                   = "512"
+      + network_mode             = "awsvpc"
+      + requires_compatibilities = [
+          + "FARGATE",
+        ]
+      + revision                 = (known after apply)
+      + skip_destroy             = false
+      + tags                     = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                 = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + task_role_arn            = (known after apply)
+      + track_latest             = false
+
+      + volume {
+          + configure_at_launch = (known after apply)
+          + name                = "tmp"
+            # (1 unchanged attribute hidden)
+        }
+    }
+
+  # module.compute.aws_ecs_task_definition.worker_scheduler will be created
+  + resource "aws_ecs_task_definition" "worker_scheduler" {
+      + arn                      = (known after apply)
+      + arn_without_revision     = (known after apply)
+      + container_definitions    = (known after apply)
+      + cpu                      = "256"
+      + enable_fault_injection   = (known after apply)
+      + execution_role_arn       = (known after apply)
+      + family                   = "nestly-dev-worker-scheduler"
+      + id                       = (known after apply)
+      + memory                   = "512"
+      + network_mode             = "awsvpc"
+      + requires_compatibilities = [
+          + "FARGATE",
+        ]
+      + revision                 = (known after apply)
+      + skip_destroy             = false
+      + tags                     = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                 = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + task_role_arn            = (known after apply)
+      + track_latest             = false
+
+      + volume {
+          + configure_at_launch = (known after apply)
+          + name                = "tmp"
+            # (1 unchanged attribute hidden)
+        }
+    }
+
+  # module.compute.aws_iam_role.api_task will be created
+  + resource "aws_iam_role" "api_task" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ecs-tasks.amazonaws.com"
+                        }
+                      + Sid       = "AllowEcsTasksAssumeRole"
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "nestly-dev-api-task-role"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # module.compute.aws_iam_role.ecs_execution will be created
+  + resource "aws_iam_role" "ecs_execution" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ecs-tasks.amazonaws.com"
+                        }
+                      + Sid       = "AllowEcsTasksAssumeRole"
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "nestly-dev-ecs-exec-role"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # module.compute.aws_iam_role.init_task will be created
+  + resource "aws_iam_role" "init_task" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ecs-tasks.amazonaws.com"
+                        }
+                      + Sid       = "AllowEcsTasksAssumeRole"
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "nestly-dev-init-task-role"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # module.compute.aws_iam_role.worker_consumer_task will be created
+  + resource "aws_iam_role" "worker_consumer_task" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ecs-tasks.amazonaws.com"
+                        }
+                      + Sid       = "AllowEcsTasksAssumeRole"
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "nestly-dev-worker-consumer-role"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # module.compute.aws_iam_role.worker_scheduler_task will be created
+  + resource "aws_iam_role" "worker_scheduler_task" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ecs-tasks.amazonaws.com"
+                        }
+                      + Sid       = "AllowEcsTasksAssumeRole"
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "nestly-dev-worker-scheduler-role"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # module.compute.aws_iam_role_policy.api_task will be created
+  + resource "aws_iam_role_policy" "api_task" {
+      + id          = (known after apply)
+      + name        = "nestly-dev-api-task-policy"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.compute.aws_iam_role_policy.ecs_execution will be created
+  + resource "aws_iam_role_policy" "ecs_execution" {
+      + id          = (known after apply)
+      + name        = "nestly-dev-ecs-exec-policy"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.compute.aws_iam_role_policy.worker_consumer_task will be created
+  + resource "aws_iam_role_policy" "worker_consumer_task" {
+      + id          = (known after apply)
+      + name        = "nestly-dev-worker-consumer-policy"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.compute.aws_iam_role_policy.worker_scheduler_task will be created
+  + resource "aws_iam_role_policy" "worker_scheduler_task" {
+      + id          = (known after apply)
+      + name        = "nestly-dev-worker-scheduler-policy"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.compute.aws_lb.api will be created
+  + resource "aws_lb" "api" {
+      + arn                                                          = (known after apply)
+      + arn_suffix                                                   = (known after apply)
+      + client_keep_alive                                            = 3600
+      + desync_mitigation_mode                                       = "defensive"
+      + dns_name                                                     = (known after apply)
+      + drop_invalid_header_fields                                   = true
+      + enable_deletion_protection                                   = true
+      + enable_http2                                                 = true
+      + enable_tls_version_and_cipher_suite_headers                  = false
+      + enable_waf_fail_open                                         = false
+      + enable_xff_client_port                                       = false
+      + enable_zonal_shift                                           = false
+      + enforce_security_group_inbound_rules_on_private_link_traffic = (known after apply)
+      + id                                                           = (known after apply)
+      + idle_timeout                                                 = 60
+      + internal                                                     = false
+      + ip_address_type                                              = (known after apply)
+      + load_balancer_type                                           = "application"
+      + name                                                         = "nestly-dev-api-alb"
+      + name_prefix                                                  = (known after apply)
+      + preserve_host_header                                         = false
+      + security_groups                                              = (known after apply)
+      + subnets                                                      = (known after apply)
+      + tags                                                         = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-api-alb"
+          + "Project"     = "nestly"
+        }
+      + tags_all                                                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-api-alb"
+          + "Project"     = "nestly"
+        }
+      + vpc_id                                                       = (known after apply)
+      + xff_header_processing_mode                                   = "append"
+      + zone_id                                                      = (known after apply)
+
+      + subnet_mapping (known after apply)
+    }
+
+  # module.compute.aws_lb_listener.api will be created
+  + resource "aws_lb_listener" "api" {
+      + arn                                                                   = (known after apply)
+      + id                                                                    = (known after apply)
+      + load_balancer_arn                                                     = (known after apply)
+      + port                                                                  = 80
+      + protocol                                                              = "HTTP"
+      + routing_http_request_x_amzn_mtls_clientcert_header_name               = (known after apply)
+      + routing_http_request_x_amzn_mtls_clientcert_issuer_header_name        = (known after apply)
+      + routing_http_request_x_amzn_mtls_clientcert_leaf_header_name          = (known after apply)
+      + routing_http_request_x_amzn_mtls_clientcert_serial_number_header_name = (known after apply)
+      + routing_http_request_x_amzn_mtls_clientcert_subject_header_name       = (known after apply)
+      + routing_http_request_x_amzn_mtls_clientcert_validity_header_name      = (known after apply)
+      + routing_http_request_x_amzn_tls_cipher_suite_header_name              = (known after apply)
+      + routing_http_request_x_amzn_tls_version_header_name                   = (known after apply)
+      + routing_http_response_access_control_allow_credentials_header_value   = (known after apply)
+      + routing_http_response_access_control_allow_headers_header_value       = (known after apply)
+      + routing_http_response_access_control_allow_methods_header_value       = (known after apply)
+      + routing_http_response_access_control_allow_origin_header_value        = (known after apply)
+      + routing_http_response_access_control_expose_headers_header_value      = (known after apply)
+      + routing_http_response_access_control_max_age_header_value             = (known after apply)
+      + routing_http_response_content_security_policy_header_value            = (known after apply)
+      + routing_http_response_server_enabled                                  = (known after apply)
+      + routing_http_response_strict_transport_security_header_value          = (known after apply)
+      + routing_http_response_x_content_type_options_header_value             = (known after apply)
+      + routing_http_response_x_frame_options_header_value                    = (known after apply)
+      + ssl_policy                                                            = (known after apply)
+      + tags_all                                                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + tcp_idle_timeout_seconds                                              = (known after apply)
+
+      + default_action {
+          + order = (known after apply)
+          + type  = "fixed-response"
+
+          + fixed_response {
+              + content_type = "application/json"
+              + message_body = jsonencode(
+                    {
+                      + error = "Direct ALB origin access forbidden"
+                    }
+                )
+              + status_code  = "403"
+            }
+        }
+
+      + mutual_authentication (known after apply)
+    }
+
+  # module.compute.aws_lb_listener_rule.origin_verify will be created
+  + resource "aws_lb_listener_rule" "origin_verify" {
+      + arn          = (known after apply)
+      + id           = (known after apply)
+      + listener_arn = (known after apply)
+      + priority     = 10
+      + tags_all     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+
+      + action {
+          + order            = (known after apply)
+          + target_group_arn = (known after apply)
+          + type             = "forward"
+        }
+
+      + condition {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+    }
+
+  # module.compute.aws_lb_target_group.api will be created
+  + resource "aws_lb_target_group" "api" {
+      + arn                                = (known after apply)
+      + arn_suffix                         = (known after apply)
+      + connection_termination             = (known after apply)
+      + deregistration_delay               = "30"
+      + id                                 = (known after apply)
+      + ip_address_type                    = (known after apply)
+      + lambda_multi_value_headers_enabled = false
+      + load_balancer_arns                 = (known after apply)
+      + load_balancing_algorithm_type      = (known after apply)
+      + load_balancing_anomaly_mitigation  = (known after apply)
+      + load_balancing_cross_zone_enabled  = (known after apply)
+      + name                               = "nestly-dev-api-tg"
+      + name_prefix                        = (known after apply)
+      + port                               = 3000
+      + preserve_client_ip                 = (known after apply)
+      + protocol                           = "HTTP"
+      + protocol_version                   = (known after apply)
+      + proxy_protocol_v2                  = false
+      + slow_start                         = 0
+      + tags                               = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-api-tg"
+          + "Project"     = "nestly"
+        }
+      + tags_all                           = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-api-tg"
+          + "Project"     = "nestly"
+        }
+      + target_type                        = "ip"
+      + vpc_id                             = (known after apply)
+
+      + health_check {
+          + enabled             = true
+          + healthy_threshold   = 2
+          + interval            = 15
+          + matcher             = "200"
+          + path                = "/healthz"
+          + port                = "traffic-port"
+          + protocol            = "HTTP"
+          + timeout             = 5
+          + unhealthy_threshold = 3
+        }
+
+      + stickiness (known after apply)
+
+      + target_failover (known after apply)
+
+      + target_group_health (known after apply)
+
+      + target_health_state (known after apply)
+    }
+
+  # module.compute.aws_secretsmanager_secret.database_url will be created
+  + resource "aws_secretsmanager_secret" "database_url" {
+      + arn                            = (known after apply)
+      + description                    = "PostgreSQL connection URL with TLS (populate manually outside Terraform)"
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "nestly-dev/database-url"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + tags                           = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+
+      + replica (known after apply)
+    }
+
+  # module.compute.aws_secretsmanager_secret.jwt_access_secret will be created
+  + resource "aws_secretsmanager_secret" "jwt_access_secret" {
+      + arn                            = (known after apply)
+      + description                    = "HS256 JWT signing secret >= 32 chars (populate manually outside Terraform)"
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "nestly-dev/jwt-access-secret"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + tags                           = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+
+      + replica (known after apply)
+    }
+
+  # module.compute.aws_secretsmanager_secret.origin_verify will be created
+  + resource "aws_secretsmanager_secret" "origin_verify" {
+      + arn                            = (known after apply)
+      + description                    = "CloudFront -> ALB X-Origin-Verify shared header value"
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "nestly-dev/origin-verify-header"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + tags                           = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+
+      + replica (known after apply)
+    }
+
+  # module.compute.aws_secretsmanager_secret.payment_webhook_secret will be created
+  + resource "aws_secretsmanager_secret" "payment_webhook_secret" {
+      + arn                            = (known after apply)
+      + description                    = "HMAC webhook secret >= 32 chars distinct from JWT secret (populate manually outside Terraform)"
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "nestly-dev/payment-webhook-secret"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + tags                           = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+
+      + replica (known after apply)
+    }
+
+  # module.compute.aws_secretsmanager_secret.redis_url will be created
+  + resource "aws_secretsmanager_secret" "redis_url" {
+      + arn                            = (known after apply)
+      + description                    = "ElastiCache Redis rediss:// URL (populate manually outside Terraform)"
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "nestly-dev/redis-url"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + tags                           = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+
+      + replica (known after apply)
+    }
+
+  # module.compute.aws_secretsmanager_secret_version.origin_verify will be created
+  + resource "aws_secretsmanager_secret_version" "origin_verify" {
+      + arn                  = (known after apply)
+      + has_secret_string_wo = (known after apply)
+      + id                   = (known after apply)
+      + secret_id            = (known after apply)
+      + secret_string        = (sensitive value)
+      + secret_string_wo     = (write-only attribute)
+      + version_id           = (known after apply)
+      + version_stages       = (known after apply)
+    }
+
+  # module.data.aws_db_instance.postgres will be created
+  + resource "aws_db_instance" "postgres" {
+      + address                               = (known after apply)
+      + allocated_storage                     = 20
+      + apply_immediately                     = false
+      + arn                                   = (known after apply)
+      + auto_minor_version_upgrade            = true
+      + availability_zone                     = (known after apply)
+      + backup_retention_period               = 7
+      + backup_target                         = (known after apply)
+      + backup_window                         = (known after apply)
+      + ca_cert_identifier                    = "rds-ca-rsa2048-g1"
+      + character_set_name                    = (known after apply)
+      + copy_tags_to_snapshot                 = true
+      + database_insights_mode                = (known after apply)
+      + db_name                               = "nestly"
+      + db_subnet_group_name                  = "nestly-dev-pg-subnets"
+      + dedicated_log_volume                  = false
+      + delete_automated_backups              = true
+      + deletion_protection                   = true
+      + domain_fqdn                           = (known after apply)
+      + enabled_cloudwatch_logs_exports       = [
+          + "postgresql",
+          + "upgrade",
+        ]
+      + endpoint                              = (known after apply)
+      + engine                                = "postgres"
+      + engine_lifecycle_support              = (known after apply)
+      + engine_version                        = "16.6"
+      + engine_version_actual                 = (known after apply)
+      + final_snapshot_identifier             = "nestly-dev-postgres-final"
+      + hosted_zone_id                        = (known after apply)
+      + iam_database_authentication_enabled   = true
+      + id                                    = (known after apply)
+      + identifier                            = "nestly-dev-postgres"
+      + identifier_prefix                     = (known after apply)
+      + instance_class                        = "db.t4g.micro"
+      + iops                                  = (known after apply)
+      + kms_key_id                            = (known after apply)
+      + latest_restorable_time                = (known after apply)
+      + license_model                         = (known after apply)
+      + listener_endpoint                     = (known after apply)
+      + maintenance_window                    = (known after apply)
+      + manage_master_user_password           = true
+      + master_user_secret                    = (known after apply)
+      + master_user_secret_kms_key_id         = (known after apply)
+      + max_allocated_storage                 = 100
+      + monitoring_interval                   = 0
+      + monitoring_role_arn                   = (known after apply)
+      + multi_az                              = false
+      + nchar_character_set_name              = (known after apply)
+      + network_type                          = (known after apply)
+      + option_group_name                     = (known after apply)
+      + parameter_group_name                  = "nestly-dev-pg16-params"
+      + password_wo                           = (write-only attribute)
+      + performance_insights_enabled          = true
+      + performance_insights_kms_key_id       = (known after apply)
+      + performance_insights_retention_period = 7
+      + port                                  = (known after apply)
+      + publicly_accessible                   = false
+      + replica_mode                          = (known after apply)
+      + replicas                              = (known after apply)
+      + resource_id                           = (known after apply)
+      + skip_final_snapshot                   = false
+      + snapshot_identifier                   = (known after apply)
+      + status                                = (known after apply)
+      + storage_encrypted                     = true
+      + storage_throughput                    = (known after apply)
+      + storage_type                          = "gp3"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-postgres"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-postgres"
+          + "Project"     = "nestly"
+        }
+      + timezone                              = (known after apply)
+      + username                              = "nestly_admin"
+      + vpc_security_group_ids                = (known after apply)
+    }
+
+  # module.data.aws_db_parameter_group.postgres will be created
+  + resource "aws_db_parameter_group" "postgres" {
+      + arn          = (known after apply)
+      + description  = "Enforce TLS in transit on Nestly RDS PostgreSQL 16"
+      + family       = "postgres16"
+      + id           = (known after apply)
+      + name         = "nestly-dev-pg16-params"
+      + name_prefix  = (known after apply)
+      + skip_destroy = false
+      + tags         = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+
+      + parameter {
+          + apply_method = "immediate"
+          + name         = "rds.force_ssl"
+          + value        = "1"
+        }
+    }
+
+  # module.data.aws_db_subnet_group.postgres will be created
+  + resource "aws_db_subnet_group" "postgres" {
+      + arn                     = (known after apply)
+      + description             = "Isolated private data subnets for Nestly PostgreSQL"
+      + id                      = (known after apply)
+      + name                    = "nestly-dev-pg-subnets"
+      + name_prefix             = (known after apply)
+      + subnet_ids              = (known after apply)
+      + supported_network_types = (known after apply)
+      + tags                    = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-pg-subnets"
+          + "Project"     = "nestly"
+        }
+      + tags_all                = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-pg-subnets"
+          + "Project"     = "nestly"
+        }
+      + vpc_id                  = (known after apply)
+    }
+
+  # module.data.aws_elasticache_replication_group.redis will be created
+  + resource "aws_elasticache_replication_group" "redis" {
+      + apply_immediately              = (known after apply)
+      + arn                            = (known after apply)
+      + at_rest_encryption_enabled     = "true"
+      + auth_token_update_strategy     = "ROTATE"
+      + auto_minor_version_upgrade     = "true"
+      + automatic_failover_enabled     = false
+      + cluster_enabled                = (known after apply)
+      + cluster_mode                   = (known after apply)
+      + configuration_endpoint_address = (known after apply)
+      + data_tiering_enabled           = (known after apply)
+      + description                    = "Nestly Redis replication group for cache, locks, holds, and rate limits"
+      + engine                         = "redis"
+      + engine_version                 = "7.1"
+      + engine_version_actual          = (known after apply)
+      + global_replication_group_id    = (known after apply)
+      + id                             = (known after apply)
+      + ip_discovery                   = (known after apply)
+      + maintenance_window             = (known after apply)
+      + member_clusters                = (known after apply)
+      + multi_az_enabled               = false
+      + network_type                   = (known after apply)
+      + node_type                      = "cache.t4g.micro"
+      + num_cache_clusters             = 1
+      + num_node_groups                = (known after apply)
+      + parameter_group_name           = (known after apply)
+      + port                           = 6379
+      + primary_endpoint_address       = (known after apply)
+      + reader_endpoint_address        = (known after apply)
+      + replicas_per_node_group        = (known after apply)
+      + replication_group_id           = "nestly-dev-redis"
+      + security_group_ids             = (known after apply)
+      + security_group_names           = (known after apply)
+      + snapshot_retention_limit       = 1
+      + snapshot_window                = (known after apply)
+      + subnet_group_name              = "nestly-dev-redis-subnets"
+      + tags                           = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-redis"
+          + "Project"     = "nestly"
+        }
+      + tags_all                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-redis"
+          + "Project"     = "nestly"
+        }
+      + transit_encryption_enabled     = true
+      + transit_encryption_mode        = (known after apply)
+    }
+
+  # module.data.aws_elasticache_subnet_group.redis will be created
+  + resource "aws_elasticache_subnet_group" "redis" {
+      + arn         = (known after apply)
+      + description = "Isolated private data subnets for Nestly Redis"
+      + id          = (known after apply)
+      + name        = "nestly-dev-redis-subnets"
+      + subnet_ids  = (known after apply)
+      + tags        = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-redis-subnets"
+          + "Project"     = "nestly"
+        }
+      + tags_all    = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-redis-subnets"
+          + "Project"     = "nestly"
+        }
+      + vpc_id      = (known after apply)
+    }
+
+  # module.messaging.aws_sqs_queue.dlq["analytics"] will be created
+  + resource "aws_sqs_queue" "dlq" {
+      + arn                               = (known after apply)
+      + content_based_deduplication       = false
+      + deduplication_scope               = (known after apply)
+      + delay_seconds                     = 0
+      + fifo_queue                        = false
+      + fifo_throughput_limit             = (known after apply)
+      + id                                = (known after apply)
+      + kms_data_key_reuse_period_seconds = 0
+      + max_message_size                  = 262144
+      + message_retention_seconds         = 1209600
+      + name                              = "nestly-dev-analytics-dlq"
+      + name_prefix                       = (known after apply)
+      + policy                            = (known after apply)
+      + receive_wait_time_seconds         = 0
+      + redrive_allow_policy              = (known after apply)
+      + redrive_policy                    = (known after apply)
+      + sqs_managed_sse_enabled           = true
+      + tags                              = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-analytics-dlq"
+          + "Project"     = "nestly"
+          + "Role"        = "dlq"
+        }
+      + tags_all                          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-analytics-dlq"
+          + "Project"     = "nestly"
+          + "Role"        = "dlq"
+        }
+      + url                               = (known after apply)
+      + visibility_timeout_seconds        = 30
+    }
+
+  # module.messaging.aws_sqs_queue.dlq["notifications"] will be created
+  + resource "aws_sqs_queue" "dlq" {
+      + arn                               = (known after apply)
+      + content_based_deduplication       = false
+      + deduplication_scope               = (known after apply)
+      + delay_seconds                     = 0
+      + fifo_queue                        = false
+      + fifo_throughput_limit             = (known after apply)
+      + id                                = (known after apply)
+      + kms_data_key_reuse_period_seconds = 0
+      + max_message_size                  = 262144
+      + message_retention_seconds         = 1209600
+      + name                              = "nestly-dev-notifications-dlq"
+      + name_prefix                       = (known after apply)
+      + policy                            = (known after apply)
+      + receive_wait_time_seconds         = 0
+      + redrive_allow_policy              = (known after apply)
+      + redrive_policy                    = (known after apply)
+      + sqs_managed_sse_enabled           = true
+      + tags                              = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-notifications-dlq"
+          + "Project"     = "nestly"
+          + "Role"        = "dlq"
+        }
+      + tags_all                          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-notifications-dlq"
+          + "Project"     = "nestly"
+          + "Role"        = "dlq"
+        }
+      + url                               = (known after apply)
+      + visibility_timeout_seconds        = 30
+    }
+
+  # module.messaging.aws_sqs_queue.dlq["provider-actions"] will be created
+  + resource "aws_sqs_queue" "dlq" {
+      + arn                               = (known after apply)
+      + content_based_deduplication       = false
+      + deduplication_scope               = (known after apply)
+      + delay_seconds                     = 0
+      + fifo_queue                        = false
+      + fifo_throughput_limit             = (known after apply)
+      + id                                = (known after apply)
+      + kms_data_key_reuse_period_seconds = 0
+      + max_message_size                  = 262144
+      + message_retention_seconds         = 1209600
+      + name                              = "nestly-dev-provider-actions-dlq"
+      + name_prefix                       = (known after apply)
+      + policy                            = (known after apply)
+      + receive_wait_time_seconds         = 0
+      + redrive_allow_policy              = (known after apply)
+      + redrive_policy                    = (known after apply)
+      + sqs_managed_sse_enabled           = true
+      + tags                              = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-provider-actions-dlq"
+          + "Project"     = "nestly"
+          + "Role"        = "dlq"
+        }
+      + tags_all                          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-provider-actions-dlq"
+          + "Project"     = "nestly"
+          + "Role"        = "dlq"
+        }
+      + url                               = (known after apply)
+      + visibility_timeout_seconds        = 30
+    }
+
+  # module.messaging.aws_sqs_queue.dlq["search-index"] will be created
+  + resource "aws_sqs_queue" "dlq" {
+      + arn                               = (known after apply)
+      + content_based_deduplication       = false
+      + deduplication_scope               = (known after apply)
+      + delay_seconds                     = 0
+      + fifo_queue                        = false
+      + fifo_throughput_limit             = (known after apply)
+      + id                                = (known after apply)
+      + kms_data_key_reuse_period_seconds = 0
+      + max_message_size                  = 262144
+      + message_retention_seconds         = 1209600
+      + name                              = "nestly-dev-search-index-dlq"
+      + name_prefix                       = (known after apply)
+      + policy                            = (known after apply)
+      + receive_wait_time_seconds         = 0
+      + redrive_allow_policy              = (known after apply)
+      + redrive_policy                    = (known after apply)
+      + sqs_managed_sse_enabled           = true
+      + tags                              = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-search-index-dlq"
+          + "Project"     = "nestly"
+          + "Role"        = "dlq"
+        }
+      + tags_all                          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-search-index-dlq"
+          + "Project"     = "nestly"
+          + "Role"        = "dlq"
+        }
+      + url                               = (known after apply)
+      + visibility_timeout_seconds        = 30
+    }
+
+  # module.messaging.aws_sqs_queue.main["analytics"] will be created
+  + resource "aws_sqs_queue" "main" {
+      + arn                               = (known after apply)
+      + content_based_deduplication       = false
+      + deduplication_scope               = (known after apply)
+      + delay_seconds                     = 0
+      + fifo_queue                        = false
+      + fifo_throughput_limit             = (known after apply)
+      + id                                = (known after apply)
+      + kms_data_key_reuse_period_seconds = 0
+      + max_message_size                  = 262144
+      + message_retention_seconds         = 345600
+      + name                              = "nestly-dev-analytics"
+      + name_prefix                       = (known after apply)
+      + policy                            = (known after apply)
+      + receive_wait_time_seconds         = 20
+      + redrive_allow_policy              = (known after apply)
+      + redrive_policy                    = (known after apply)
+      + sqs_managed_sse_enabled           = true
+      + tags                              = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-analytics"
+          + "Project"     = "nestly"
+          + "Role"        = "primary"
+        }
+      + tags_all                          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-analytics"
+          + "Project"     = "nestly"
+          + "Role"        = "primary"
+        }
+      + url                               = (known after apply)
+      + visibility_timeout_seconds        = 60
+    }
+
+  # module.messaging.aws_sqs_queue.main["notifications"] will be created
+  + resource "aws_sqs_queue" "main" {
+      + arn                               = (known after apply)
+      + content_based_deduplication       = false
+      + deduplication_scope               = (known after apply)
+      + delay_seconds                     = 0
+      + fifo_queue                        = false
+      + fifo_throughput_limit             = (known after apply)
+      + id                                = (known after apply)
+      + kms_data_key_reuse_period_seconds = 0
+      + max_message_size                  = 262144
+      + message_retention_seconds         = 345600
+      + name                              = "nestly-dev-notifications"
+      + name_prefix                       = (known after apply)
+      + policy                            = (known after apply)
+      + receive_wait_time_seconds         = 20
+      + redrive_allow_policy              = (known after apply)
+      + redrive_policy                    = (known after apply)
+      + sqs_managed_sse_enabled           = true
+      + tags                              = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-notifications"
+          + "Project"     = "nestly"
+          + "Role"        = "primary"
+        }
+      + tags_all                          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-notifications"
+          + "Project"     = "nestly"
+          + "Role"        = "primary"
+        }
+      + url                               = (known after apply)
+      + visibility_timeout_seconds        = 60
+    }
+
+  # module.messaging.aws_sqs_queue.main["provider-actions"] will be created
+  + resource "aws_sqs_queue" "main" {
+      + arn                               = (known after apply)
+      + content_based_deduplication       = false
+      + deduplication_scope               = (known after apply)
+      + delay_seconds                     = 0
+      + fifo_queue                        = false
+      + fifo_throughput_limit             = (known after apply)
+      + id                                = (known after apply)
+      + kms_data_key_reuse_period_seconds = 0
+      + max_message_size                  = 262144
+      + message_retention_seconds         = 345600
+      + name                              = "nestly-dev-provider-actions"
+      + name_prefix                       = (known after apply)
+      + policy                            = (known after apply)
+      + receive_wait_time_seconds         = 20
+      + redrive_allow_policy              = (known after apply)
+      + redrive_policy                    = (known after apply)
+      + sqs_managed_sse_enabled           = true
+      + tags                              = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-provider-actions"
+          + "Project"     = "nestly"
+          + "Role"        = "primary"
+        }
+      + tags_all                          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-provider-actions"
+          + "Project"     = "nestly"
+          + "Role"        = "primary"
+        }
+      + url                               = (known after apply)
+      + visibility_timeout_seconds        = 60
+    }
+
+  # module.messaging.aws_sqs_queue.main["search-index"] will be created
+  + resource "aws_sqs_queue" "main" {
+      + arn                               = (known after apply)
+      + content_based_deduplication       = false
+      + deduplication_scope               = (known after apply)
+      + delay_seconds                     = 0
+      + fifo_queue                        = false
+      + fifo_throughput_limit             = (known after apply)
+      + id                                = (known after apply)
+      + kms_data_key_reuse_period_seconds = 0
+      + max_message_size                  = 262144
+      + message_retention_seconds         = 345600
+      + name                              = "nestly-dev-search-index"
+      + name_prefix                       = (known after apply)
+      + policy                            = (known after apply)
+      + receive_wait_time_seconds         = 20
+      + redrive_allow_policy              = (known after apply)
+      + redrive_policy                    = (known after apply)
+      + sqs_managed_sse_enabled           = true
+      + tags                              = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-search-index"
+          + "Project"     = "nestly"
+          + "Role"        = "primary"
+        }
+      + tags_all                          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-search-index"
+          + "Project"     = "nestly"
+          + "Role"        = "primary"
+        }
+      + url                               = (known after apply)
+      + visibility_timeout_seconds        = 60
+    }
+
+  # module.messaging.aws_sqs_queue_policy.dlq["analytics"] will be created
+  + resource "aws_sqs_queue_policy" "dlq" {
+      + id        = (known after apply)
+      + policy    = (known after apply)
+      + queue_url = (known after apply)
+    }
+
+  # module.messaging.aws_sqs_queue_policy.dlq["notifications"] will be created
+  + resource "aws_sqs_queue_policy" "dlq" {
+      + id        = (known after apply)
+      + policy    = (known after apply)
+      + queue_url = (known after apply)
+    }
+
+  # module.messaging.aws_sqs_queue_policy.dlq["provider-actions"] will be created
+  + resource "aws_sqs_queue_policy" "dlq" {
+      + id        = (known after apply)
+      + policy    = (known after apply)
+      + queue_url = (known after apply)
+    }
+
+  # module.messaging.aws_sqs_queue_policy.dlq["search-index"] will be created
+  + resource "aws_sqs_queue_policy" "dlq" {
+      + id        = (known after apply)
+      + policy    = (known after apply)
+      + queue_url = (known after apply)
+    }
+
+  # module.messaging.aws_sqs_queue_policy.main["analytics"] will be created
+  + resource "aws_sqs_queue_policy" "main" {
+      + id        = (known after apply)
+      + policy    = (known after apply)
+      + queue_url = (known after apply)
+    }
+
+  # module.messaging.aws_sqs_queue_policy.main["notifications"] will be created
+  + resource "aws_sqs_queue_policy" "main" {
+      + id        = (known after apply)
+      + policy    = (known after apply)
+      + queue_url = (known after apply)
+    }
+
+  # module.messaging.aws_sqs_queue_policy.main["provider-actions"] will be created
+  + resource "aws_sqs_queue_policy" "main" {
+      + id        = (known after apply)
+      + policy    = (known after apply)
+      + queue_url = (known after apply)
+    }
+
+  # module.messaging.aws_sqs_queue_policy.main["search-index"] will be created
+  + resource "aws_sqs_queue_policy" "main" {
+      + id        = (known after apply)
+      + policy    = (known after apply)
+      + queue_url = (known after apply)
+    }
+
+  # module.network.aws_cloudwatch_log_group.flow_logs will be created
+  + resource "aws_cloudwatch_log_group" "flow_logs" {
+      + arn               = (known after apply)
+      + id                = (known after apply)
+      + log_group_class   = (known after apply)
+      + name              = "/aws/vpc/nestly-dev/flow-logs"
+      + name_prefix       = (known after apply)
+      + retention_in_days = 30
+      + skip_destroy      = false
+      + tags              = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all          = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+    }
+
+  # module.network.aws_default_security_group.default will be created
+  + resource "aws_default_security_group" "default" {
+      + arn                    = (known after apply)
+      + description            = (known after apply)
+      + egress                 = (known after apply)
+      + id                     = (known after apply)
+      + ingress                = (known after apply)
+      + name                   = (known after apply)
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + revoke_rules_on_delete = false
+      + tags                   = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-default-sg-locked"
+          + "Project"     = "nestly"
+        }
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-default-sg-locked"
+          + "Project"     = "nestly"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # module.network.aws_eip.nat[0] will be created
+  + resource "aws_eip" "nat" {
+      + allocation_id        = (known after apply)
+      + arn                  = (known after apply)
+      + association_id       = (known after apply)
+      + carrier_ip           = (known after apply)
+      + customer_owned_ip    = (known after apply)
+      + domain               = "vpc"
+      + id                   = (known after apply)
+      + instance             = (known after apply)
+      + ipam_pool_id         = (known after apply)
+      + network_border_group = (known after apply)
+      + network_interface    = (known after apply)
+      + private_dns          = (known after apply)
+      + private_ip           = (known after apply)
+      + ptr_record           = (known after apply)
+      + public_dns           = (known after apply)
+      + public_ip            = (known after apply)
+      + public_ipv4_pool     = (known after apply)
+      + tags                 = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-nat-eip-0"
+          + "Project"     = "nestly"
+        }
+      + tags_all             = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-nat-eip-0"
+          + "Project"     = "nestly"
+        }
+      + vpc                  = (known after apply)
+    }
+
+  # module.network.aws_flow_log.vpc will be created
+  + resource "aws_flow_log" "vpc" {
+      + arn                      = (known after apply)
+      + iam_role_arn             = (known after apply)
+      + id                       = (known after apply)
+      + log_destination          = (known after apply)
+      + log_destination_type     = "cloud-watch-logs"
+      + log_format               = (known after apply)
+      + log_group_name           = (known after apply)
+      + max_aggregation_interval = 600
+      + tags                     = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-vpc-flow-log"
+          + "Project"     = "nestly"
+        }
+      + tags_all                 = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-vpc-flow-log"
+          + "Project"     = "nestly"
+        }
+      + traffic_type             = "ALL"
+      + vpc_id                   = (known after apply)
+    }
+
+  # module.network.aws_iam_role.flow_logs will be created
+  + resource "aws_iam_role" "flow_logs" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "vpc-flow-logs.amazonaws.com"
+                        }
+                      + Sid       = "AllowVpcFlowLogsAssumeRole"
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "nestly-dev-vpc-flow-logs-role"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # module.network.aws_iam_role_policy.flow_logs will be created
+  + resource "aws_iam_role_policy" "flow_logs" {
+      + id          = (known after apply)
+      + name        = "nestly-dev-vpc-flow-logs-policy"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # module.network.aws_internet_gateway.this will be created
+  + resource "aws_internet_gateway" "this" {
+      + arn      = (known after apply)
+      + id       = (known after apply)
+      + owner_id = (known after apply)
+      + tags     = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-igw"
+          + "Project"     = "nestly"
+        }
+      + tags_all = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-igw"
+          + "Project"     = "nestly"
+        }
+      + vpc_id   = (known after apply)
+    }
+
+  # module.network.aws_nat_gateway.this[0] will be created
+  + resource "aws_nat_gateway" "this" {
+      + allocation_id                      = (known after apply)
+      + association_id                     = (known after apply)
+      + connectivity_type                  = "public"
+      + id                                 = (known after apply)
+      + network_interface_id               = (known after apply)
+      + private_ip                         = (known after apply)
+      + public_ip                          = (known after apply)
+      + secondary_private_ip_address_count = (known after apply)
+      + secondary_private_ip_addresses     = (known after apply)
+      + subnet_id                          = (known after apply)
+      + tags                               = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-nat-0"
+          + "Project"     = "nestly"
+        }
+      + tags_all                           = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-nat-0"
+          + "Project"     = "nestly"
+        }
+    }
+
+  # module.network.aws_route.private_app_nat[0] will be created
+  + resource "aws_route" "private_app_nat" {
+      + destination_cidr_block = "0.0.0.0/0"
+      + id                     = (known after apply)
+      + instance_id            = (known after apply)
+      + instance_owner_id      = (known after apply)
+      + nat_gateway_id         = (known after apply)
+      + network_interface_id   = (known after apply)
+      + origin                 = (known after apply)
+      + route_table_id         = (known after apply)
+      + state                  = (known after apply)
+    }
+
+  # module.network.aws_route.public_internet will be created
+  + resource "aws_route" "public_internet" {
+      + destination_cidr_block = "0.0.0.0/0"
+      + gateway_id             = (known after apply)
+      + id                     = (known after apply)
+      + instance_id            = (known after apply)
+      + instance_owner_id      = (known after apply)
+      + network_interface_id   = (known after apply)
+      + origin                 = (known after apply)
+      + route_table_id         = (known after apply)
+      + state                  = (known after apply)
+    }
+
+  # module.network.aws_route_table.private_app[0] will be created
+  + resource "aws_route_table" "private_app" {
+      + arn              = (known after apply)
+      + id               = (known after apply)
+      + owner_id         = (known after apply)
+      + propagating_vgws = (known after apply)
+      + route            = (known after apply)
+      + tags             = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-app-rt-0"
+          + "Project"     = "nestly"
+        }
+      + tags_all         = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-app-rt-0"
+          + "Project"     = "nestly"
+        }
+      + vpc_id           = (known after apply)
+    }
+
+  # module.network.aws_route_table.private_data will be created
+  + resource "aws_route_table" "private_data" {
+      + arn              = (known after apply)
+      + id               = (known after apply)
+      + owner_id         = (known after apply)
+      + propagating_vgws = (known after apply)
+      + route            = (known after apply)
+      + tags             = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-data-rt"
+          + "Project"     = "nestly"
+        }
+      + tags_all         = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-data-rt"
+          + "Project"     = "nestly"
+        }
+      + vpc_id           = (known after apply)
+    }
+
+  # module.network.aws_route_table.public will be created
+  + resource "aws_route_table" "public" {
+      + arn              = (known after apply)
+      + id               = (known after apply)
+      + owner_id         = (known after apply)
+      + propagating_vgws = (known after apply)
+      + route            = (known after apply)
+      + tags             = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-public-rt"
+          + "Project"     = "nestly"
+        }
+      + tags_all         = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-public-rt"
+          + "Project"     = "nestly"
+        }
+      + vpc_id           = (known after apply)
+    }
+
+  # module.network.aws_route_table_association.private_app[0] will be created
+  + resource "aws_route_table_association" "private_app" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.network.aws_route_table_association.private_app[1] will be created
+  + resource "aws_route_table_association" "private_app" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.network.aws_route_table_association.private_data[0] will be created
+  + resource "aws_route_table_association" "private_data" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.network.aws_route_table_association.private_data[1] will be created
+  + resource "aws_route_table_association" "private_data" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.network.aws_route_table_association.public[0] will be created
+  + resource "aws_route_table_association" "public" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.network.aws_route_table_association.public[1] will be created
+  + resource "aws_route_table_association" "public" {
+      + id             = (known after apply)
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # module.network.aws_security_group.alb will be created
+  + resource "aws_security_group" "alb" {
+      + arn                    = (known after apply)
+      + description            = "ALB security group: ingress from CloudFront prefix list only; egress to API tasks only"
+      + egress                 = (known after apply)
+      + id                     = (known after apply)
+      + ingress                = (known after apply)
+      + name                   = "nestly-dev-alb-sg"
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + revoke_rules_on_delete = false
+      + tags                   = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-alb-sg"
+          + "Project"     = "nestly"
+        }
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-alb-sg"
+          + "Project"     = "nestly"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # module.network.aws_security_group.api will be created
+  + resource "aws_security_group" "api" {
+      + arn                    = (known after apply)
+      + description            = "API ECS task security group: ingress strictly from ALB on app port"
+      + egress                 = (known after apply)
+      + id                     = (known after apply)
+      + ingress                = (known after apply)
+      + name                   = "nestly-dev-api-sg"
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + revoke_rules_on_delete = false
+      + tags                   = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-api-sg"
+          + "Project"     = "nestly"
+        }
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-api-sg"
+          + "Project"     = "nestly"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # module.network.aws_security_group.data will be created
+  + resource "aws_security_group" "data" {
+      + arn                    = (known after apply)
+      + description            = "Data tier security group (RDS Postgres, ElastiCache Redis, optional OpenSearch)"
+      + egress                 = (known after apply)
+      + id                     = (known after apply)
+      + ingress                = (known after apply)
+      + name                   = "nestly-dev-data-sg"
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + revoke_rules_on_delete = false
+      + tags                   = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-data-sg"
+          + "Project"     = "nestly"
+        }
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-data-sg"
+          + "Project"     = "nestly"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # module.network.aws_security_group.vpce[0] will be created
+  + resource "aws_security_group" "vpce" {
+      + arn                    = (known after apply)
+      + description            = "Allow HTTPS 443 strictly from Nestly private VPC CIDR to AWS interface endpoints"
+      + egress                 = (known after apply)
+      + id                     = (known after apply)
+      + ingress                = (known after apply)
+      + name                   = "nestly-dev-vpce-sg"
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + revoke_rules_on_delete = false
+      + tags                   = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-vpce-sg"
+          + "Project"     = "nestly"
+        }
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-vpce-sg"
+          + "Project"     = "nestly"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # module.network.aws_security_group.worker will be created
+  + resource "aws_security_group" "worker" {
+      + arn                    = (known after apply)
+      + description            = "Worker and one-off init task security group"
+      + egress                 = (known after apply)
+      + id                     = (known after apply)
+      + ingress                = (known after apply)
+      + name                   = "nestly-dev-worker-sg"
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + revoke_rules_on_delete = false
+      + tags                   = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-worker-sg"
+          + "Project"     = "nestly"
+        }
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-worker-sg"
+          + "Project"     = "nestly"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # module.network.aws_subnet.private_app[0] will be created
+  + resource "aws_subnet" "private_app" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "us-east-1a"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.20.64.0/20"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-app-us-east-1a"
+          + "Project"     = "nestly"
+          + "Tier"        = "private-app"
+        }
+      + tags_all                                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-app-us-east-1a"
+          + "Project"     = "nestly"
+          + "Tier"        = "private-app"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.network.aws_subnet.private_app[1] will be created
+  + resource "aws_subnet" "private_app" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "us-east-1b"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.20.80.0/20"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-app-us-east-1b"
+          + "Project"     = "nestly"
+          + "Tier"        = "private-app"
+        }
+      + tags_all                                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-app-us-east-1b"
+          + "Project"     = "nestly"
+          + "Tier"        = "private-app"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.network.aws_subnet.private_data[0] will be created
+  + resource "aws_subnet" "private_data" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "us-east-1a"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.20.128.0/20"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-data-us-east-1a"
+          + "Project"     = "nestly"
+          + "Tier"        = "private-data"
+        }
+      + tags_all                                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-data-us-east-1a"
+          + "Project"     = "nestly"
+          + "Tier"        = "private-data"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.network.aws_subnet.private_data[1] will be created
+  + resource "aws_subnet" "private_data" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "us-east-1b"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.20.144.0/20"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-data-us-east-1b"
+          + "Project"     = "nestly"
+          + "Tier"        = "private-data"
+        }
+      + tags_all                                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-data-us-east-1b"
+          + "Project"     = "nestly"
+          + "Tier"        = "private-data"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.network.aws_subnet.public[0] will be created
+  + resource "aws_subnet" "public" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "us-east-1a"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.20.0.0/20"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-public-us-east-1a"
+          + "Project"     = "nestly"
+          + "Tier"        = "public"
+        }
+      + tags_all                                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-public-us-east-1a"
+          + "Project"     = "nestly"
+          + "Tier"        = "public"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.network.aws_subnet.public[1] will be created
+  + resource "aws_subnet" "public" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "us-east-1b"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.20.16.0/20"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + tags                                           = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-public-us-east-1b"
+          + "Project"     = "nestly"
+          + "Tier"        = "public"
+        }
+      + tags_all                                       = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-public-us-east-1b"
+          + "Project"     = "nestly"
+          + "Tier"        = "public"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # module.network.aws_vpc.this will be created
+  + resource "aws_vpc" "this" {
+      + arn                                  = (known after apply)
+      + cidr_block                           = "10.20.0.0/16"
+      + default_network_acl_id               = (known after apply)
+      + default_route_table_id               = (known after apply)
+      + default_security_group_id            = (known after apply)
+      + dhcp_options_id                      = (known after apply)
+      + enable_dns_hostnames                 = true
+      + enable_dns_support                   = true
+      + enable_network_address_usage_metrics = (known after apply)
+      + id                                   = (known after apply)
+      + instance_tenancy                     = "default"
+      + ipv6_association_id                  = (known after apply)
+      + ipv6_cidr_block                      = (known after apply)
+      + ipv6_cidr_block_network_border_group = (known after apply)
+      + main_route_table_id                  = (known after apply)
+      + owner_id                             = (known after apply)
+      + tags                                 = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-vpc"
+          + "Project"     = "nestly"
+        }
+      + tags_all                             = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-vpc"
+          + "Project"     = "nestly"
+        }
+    }
+
+  # module.network.aws_vpc_endpoint.interface["ecr_api"] will be created
+  + resource "aws_vpc_endpoint" "interface" {
+      + arn                   = (known after apply)
+      + cidr_blocks           = (known after apply)
+      + dns_entry             = (known after apply)
+      + id                    = (known after apply)
+      + ip_address_type       = (known after apply)
+      + network_interface_ids = (known after apply)
+      + owner_id              = (known after apply)
+      + policy                = (known after apply)
+      + prefix_list_id        = (known after apply)
+      + private_dns_enabled   = true
+      + requester_managed     = (known after apply)
+      + route_table_ids       = (known after apply)
+      + security_group_ids    = (known after apply)
+      + service_name          = "com.amazonaws.us-east-1.ecr.api"
+      + service_region        = (known after apply)
+      + state                 = (known after apply)
+      + subnet_ids            = (known after apply)
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-ecr_api-vpce"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-ecr_api-vpce"
+          + "Project"     = "nestly"
+        }
+      + vpc_endpoint_type     = "Interface"
+      + vpc_id                = (known after apply)
+
+      + dns_options (known after apply)
+
+      + subnet_configuration (known after apply)
+    }
+
+  # module.network.aws_vpc_endpoint.interface["ecr_dkr"] will be created
+  + resource "aws_vpc_endpoint" "interface" {
+      + arn                   = (known after apply)
+      + cidr_blocks           = (known after apply)
+      + dns_entry             = (known after apply)
+      + id                    = (known after apply)
+      + ip_address_type       = (known after apply)
+      + network_interface_ids = (known after apply)
+      + owner_id              = (known after apply)
+      + policy                = (known after apply)
+      + prefix_list_id        = (known after apply)
+      + private_dns_enabled   = true
+      + requester_managed     = (known after apply)
+      + route_table_ids       = (known after apply)
+      + security_group_ids    = (known after apply)
+      + service_name          = "com.amazonaws.us-east-1.ecr.dkr"
+      + service_region        = (known after apply)
+      + state                 = (known after apply)
+      + subnet_ids            = (known after apply)
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-ecr_dkr-vpce"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-ecr_dkr-vpce"
+          + "Project"     = "nestly"
+        }
+      + vpc_endpoint_type     = "Interface"
+      + vpc_id                = (known after apply)
+
+      + dns_options (known after apply)
+
+      + subnet_configuration (known after apply)
+    }
+
+  # module.network.aws_vpc_endpoint.interface["logs"] will be created
+  + resource "aws_vpc_endpoint" "interface" {
+      + arn                   = (known after apply)
+      + cidr_blocks           = (known after apply)
+      + dns_entry             = (known after apply)
+      + id                    = (known after apply)
+      + ip_address_type       = (known after apply)
+      + network_interface_ids = (known after apply)
+      + owner_id              = (known after apply)
+      + policy                = (known after apply)
+      + prefix_list_id        = (known after apply)
+      + private_dns_enabled   = true
+      + requester_managed     = (known after apply)
+      + route_table_ids       = (known after apply)
+      + security_group_ids    = (known after apply)
+      + service_name          = "com.amazonaws.us-east-1.logs"
+      + service_region        = (known after apply)
+      + state                 = (known after apply)
+      + subnet_ids            = (known after apply)
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-logs-vpce"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-logs-vpce"
+          + "Project"     = "nestly"
+        }
+      + vpc_endpoint_type     = "Interface"
+      + vpc_id                = (known after apply)
+
+      + dns_options (known after apply)
+
+      + subnet_configuration (known after apply)
+    }
+
+  # module.network.aws_vpc_endpoint.interface["secretsmanager"] will be created
+  + resource "aws_vpc_endpoint" "interface" {
+      + arn                   = (known after apply)
+      + cidr_blocks           = (known after apply)
+      + dns_entry             = (known after apply)
+      + id                    = (known after apply)
+      + ip_address_type       = (known after apply)
+      + network_interface_ids = (known after apply)
+      + owner_id              = (known after apply)
+      + policy                = (known after apply)
+      + prefix_list_id        = (known after apply)
+      + private_dns_enabled   = true
+      + requester_managed     = (known after apply)
+      + route_table_ids       = (known after apply)
+      + security_group_ids    = (known after apply)
+      + service_name          = "com.amazonaws.us-east-1.secretsmanager"
+      + service_region        = (known after apply)
+      + state                 = (known after apply)
+      + subnet_ids            = (known after apply)
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-secretsmanager-vpce"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-secretsmanager-vpce"
+          + "Project"     = "nestly"
+        }
+      + vpc_endpoint_type     = "Interface"
+      + vpc_id                = (known after apply)
+
+      + dns_options (known after apply)
+
+      + subnet_configuration (known after apply)
+    }
+
+  # module.network.aws_vpc_endpoint.interface["sqs"] will be created
+  + resource "aws_vpc_endpoint" "interface" {
+      + arn                   = (known after apply)
+      + cidr_blocks           = (known after apply)
+      + dns_entry             = (known after apply)
+      + id                    = (known after apply)
+      + ip_address_type       = (known after apply)
+      + network_interface_ids = (known after apply)
+      + owner_id              = (known after apply)
+      + policy                = (known after apply)
+      + prefix_list_id        = (known after apply)
+      + private_dns_enabled   = true
+      + requester_managed     = (known after apply)
+      + route_table_ids       = (known after apply)
+      + security_group_ids    = (known after apply)
+      + service_name          = "com.amazonaws.us-east-1.sqs"
+      + service_region        = (known after apply)
+      + state                 = (known after apply)
+      + subnet_ids            = (known after apply)
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-sqs-vpce"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-sqs-vpce"
+          + "Project"     = "nestly"
+        }
+      + vpc_endpoint_type     = "Interface"
+      + vpc_id                = (known after apply)
+
+      + dns_options (known after apply)
+
+      + subnet_configuration (known after apply)
+    }
+
+  # module.network.aws_vpc_endpoint.s3 will be created
+  + resource "aws_vpc_endpoint" "s3" {
+      + arn                   = (known after apply)
+      + cidr_blocks           = (known after apply)
+      + dns_entry             = (known after apply)
+      + id                    = (known after apply)
+      + ip_address_type       = (known after apply)
+      + network_interface_ids = (known after apply)
+      + owner_id              = (known after apply)
+      + policy                = (known after apply)
+      + prefix_list_id        = (known after apply)
+      + private_dns_enabled   = (known after apply)
+      + requester_managed     = (known after apply)
+      + route_table_ids       = (known after apply)
+      + security_group_ids    = (known after apply)
+      + service_name          = "com.amazonaws.us-east-1.s3"
+      + service_region        = (known after apply)
+      + state                 = (known after apply)
+      + subnet_ids            = (known after apply)
+      + tags                  = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-s3-gateway-vpce"
+          + "Project"     = "nestly"
+        }
+      + tags_all              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-s3-gateway-vpce"
+          + "Project"     = "nestly"
+        }
+      + vpc_endpoint_type     = "Gateway"
+      + vpc_id                = (known after apply)
+
+      + dns_options (known after apply)
+
+      + subnet_configuration (known after apply)
+    }
+
+  # module.network.aws_vpc_security_group_egress_rule.alb_to_api will be created
+  + resource "aws_vpc_security_group_egress_rule" "alb_to_api" {
+      + arn                          = (known after apply)
+      + description                  = "Forward traffic strictly to API ECS security group on app port"
+      + from_port                    = 3000
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 3000
+    }
+
+  # module.network.aws_vpc_security_group_egress_rule.api_https_out will be created
+  + resource "aws_vpc_security_group_egress_rule" "api_https_out" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "0.0.0.0/0"
+      + description            = "Allow HTTPS 443 egress for AWS VPC endpoints, S3, and external webhooks"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                = 443
+    }
+
+  # module.network.aws_vpc_security_group_egress_rule.api_to_data_pg will be created
+  + resource "aws_vpc_security_group_egress_rule" "api_to_data_pg" {
+      + arn                          = (known after apply)
+      + description                  = "Allow PostgreSQL egress to data tier"
+      + from_port                    = 5432
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 5432
+    }
+
+  # module.network.aws_vpc_security_group_egress_rule.api_to_data_redis will be created
+  + resource "aws_vpc_security_group_egress_rule" "api_to_data_redis" {
+      + arn                          = (known after apply)
+      + description                  = "Allow TLS Redis egress to data tier"
+      + from_port                    = 6379
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 6379
+    }
+
+  # module.network.aws_vpc_security_group_egress_rule.worker_https_out will be created
+  + resource "aws_vpc_security_group_egress_rule" "worker_https_out" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "0.0.0.0/0"
+      + description            = "Allow HTTPS 443 egress for SQS, S3, Secrets Manager, and ECR"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                = 443
+    }
+
+  # module.network.aws_vpc_security_group_egress_rule.worker_to_data_pg will be created
+  + resource "aws_vpc_security_group_egress_rule" "worker_to_data_pg" {
+      + arn                          = (known after apply)
+      + description                  = "Allow PostgreSQL egress from workers and init tasks to data tier"
+      + from_port                    = 5432
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 5432
+    }
+
+  # module.network.aws_vpc_security_group_egress_rule.worker_to_data_redis will be created
+  + resource "aws_vpc_security_group_egress_rule" "worker_to_data_redis" {
+      + arn                          = (known after apply)
+      + description                  = "Allow TLS Redis egress from workers to data tier"
+      + from_port                    = 6379
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 6379
+    }
+
+  # module.network.aws_vpc_security_group_ingress_rule.alb_cloudfront_http[0] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "alb_cloudfront_http" {
+      + arn                    = (known after apply)
+      + description            = "Allow HTTP 80 from CloudFront prefix list when ACM cert is not configured yet"
+      + from_port              = 80
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + prefix_list_id         = "pl-3b927c52"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                = 80
+    }
+
+  # module.network.aws_vpc_security_group_ingress_rule.api_from_alb will be created
+  + resource "aws_vpc_security_group_ingress_rule" "api_from_alb" {
+      + arn                          = (known after apply)
+      + description                  = "Allow traffic from ALB security group on API container port"
+      + from_port                    = 3000
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 3000
+    }
+
+  # module.network.aws_vpc_security_group_ingress_rule.data_pg_from_api will be created
+  + resource "aws_vpc_security_group_ingress_rule" "data_pg_from_api" {
+      + arn                          = (known after apply)
+      + description                  = "Allow PostgreSQL 5432 from API ECS tasks"
+      + from_port                    = 5432
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 5432
+    }
+
+  # module.network.aws_vpc_security_group_ingress_rule.data_pg_from_worker will be created
+  + resource "aws_vpc_security_group_ingress_rule" "data_pg_from_worker" {
+      + arn                          = (known after apply)
+      + description                  = "Allow PostgreSQL 5432 from Worker and init tasks"
+      + from_port                    = 5432
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 5432
+    }
+
+  # module.network.aws_vpc_security_group_ingress_rule.data_redis_from_api will be created
+  + resource "aws_vpc_security_group_ingress_rule" "data_redis_from_api" {
+      + arn                          = (known after apply)
+      + description                  = "Allow TLS Redis 6379 from API ECS tasks"
+      + from_port                    = 6379
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 6379
+    }
+
+  # module.network.aws_vpc_security_group_ingress_rule.data_redis_from_worker will be created
+  + resource "aws_vpc_security_group_ingress_rule" "data_redis_from_worker" {
+      + arn                          = (known after apply)
+      + description                  = "Allow TLS Redis 6379 from Worker tasks"
+      + from_port                    = 6379
+      + id                           = (known after apply)
+      + ip_protocol                  = "tcp"
+      + referenced_security_group_id = (known after apply)
+      + security_group_id            = (known after apply)
+      + security_group_rule_id       = (known after apply)
+      + tags_all                     = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                      = 6379
+    }
+
+  # module.network.aws_vpc_security_group_ingress_rule.vpce_https[0] will be created
+  + resource "aws_vpc_security_group_ingress_rule" "vpce_https" {
+      + arn                    = (known after apply)
+      + cidr_ipv4              = "10.20.0.0/16"
+      + description            = "Allow HTTPS 443 from private VPC CIDR"
+      + from_port              = 443
+      + id                     = (known after apply)
+      + ip_protocol            = "tcp"
+      + security_group_id      = (known after apply)
+      + security_group_rule_id = (known after apply)
+      + tags_all               = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + to_port                = 443
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.alb_5xx will be created
+  + resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when ALB or backend target 5xx responses exceed 10 in 5 minutes"
+      + alarm_name                            = "nestly-dev-alb-5xx"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 1
+      + id                                    = (known after apply)
+      + ok_actions                            = (known after apply)
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 10
+      + treat_missing_data                    = "notBreaching"
+
+      + metric_query {
+          + id          = "elb_5xx"
+          + return_data = false
+            # (3 unchanged attributes hidden)
+
+          + metric {
+              + dimensions  = (known after apply)
+              + metric_name = "HTTPCode_ELB_5XX_Count"
+              + namespace   = "AWS/ApplicationELB"
+              + period      = 300
+              + stat        = "Sum"
+                # (1 unchanged attribute hidden)
+            }
+        }
+      + metric_query {
+          + id          = "target_5xx"
+          + return_data = false
+            # (3 unchanged attributes hidden)
+
+          + metric {
+              + dimensions  = (known after apply)
+              + metric_name = "HTTPCode_Target_5XX_Count"
+              + namespace   = "AWS/ApplicationELB"
+              + period      = 300
+              + stat        = "Sum"
+                # (1 unchanged attribute hidden)
+            }
+        }
+      + metric_query {
+          + expression  = "elb_5xx + target_5xx"
+          + id          = "total_5xx"
+          + label       = "Total ALB + Target 5xx errors"
+          + return_data = true
+            # (1 unchanged attribute hidden)
+        }
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.alb_latency_p95 will be created
+  + resource "aws_cloudwatch_metric_alarm" "alb_latency_p95" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when ALB TargetResponseTime p95 exceeds 2.0 seconds"
+      + alarm_name                            = "nestly-dev-alb-latency-p95"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = (known after apply)
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + extended_statistic                    = "p95"
+      + id                                    = (known after apply)
+      + metric_name                           = "TargetResponseTime"
+      + namespace                             = "AWS/ApplicationELB"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 2
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.dlq_non_empty["analytics"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "dlq_non_empty" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers immediately if any message lands in SQS DLQ nestly-dev-analytics-dlq"
+      + alarm_name                            = "nestly-dev-dlq-analytics-non-empty"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanOrEqualToThreshold"
+      + dimensions                            = {
+          + "QueueName" = "nestly-dev-analytics-dlq"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 1
+      + id                                    = (known after apply)
+      + metric_name                           = "ApproximateNumberOfMessagesVisible"
+      + namespace                             = "AWS/SQS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Sum"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 1
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.dlq_non_empty["notifications"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "dlq_non_empty" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers immediately if any message lands in SQS DLQ nestly-dev-notifications-dlq"
+      + alarm_name                            = "nestly-dev-dlq-notifications-non-empty"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanOrEqualToThreshold"
+      + dimensions                            = {
+          + "QueueName" = "nestly-dev-notifications-dlq"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 1
+      + id                                    = (known after apply)
+      + metric_name                           = "ApproximateNumberOfMessagesVisible"
+      + namespace                             = "AWS/SQS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Sum"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 1
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.dlq_non_empty["provider-actions"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "dlq_non_empty" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers immediately if any message lands in SQS DLQ nestly-dev-provider-actions-dlq"
+      + alarm_name                            = "nestly-dev-dlq-provider-actions-non-empty"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanOrEqualToThreshold"
+      + dimensions                            = {
+          + "QueueName" = "nestly-dev-provider-actions-dlq"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 1
+      + id                                    = (known after apply)
+      + metric_name                           = "ApproximateNumberOfMessagesVisible"
+      + namespace                             = "AWS/SQS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Sum"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 1
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.dlq_non_empty["search-index"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "dlq_non_empty" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers immediately if any message lands in SQS DLQ nestly-dev-search-index-dlq"
+      + alarm_name                            = "nestly-dev-dlq-search-index-non-empty"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanOrEqualToThreshold"
+      + dimensions                            = {
+          + "QueueName" = "nestly-dev-search-index-dlq"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 1
+      + id                                    = (known after apply)
+      + metric_name                           = "ApproximateNumberOfMessagesVisible"
+      + namespace                             = "AWS/SQS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Sum"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 1
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.ecs_api_cpu will be created
+  + resource "aws_cloudwatch_metric_alarm" "ecs_api_cpu" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when ECS API CPU utilization exceeds 85%"
+      + alarm_name                            = "nestly-dev-ecs-api-cpu-high"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "ClusterName" = "nestly-dev-cluster"
+          + "ServiceName" = "nestly-dev-api"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "CPUUtilization"
+      + namespace                             = "AWS/ECS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 85
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.ecs_consumer_cpu will be created
+  + resource "aws_cloudwatch_metric_alarm" "ecs_consumer_cpu" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when ECS consumer worker CPU utilization exceeds 85%"
+      + alarm_name                            = "nestly-dev-ecs-consumer-cpu-high"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "ClusterName" = "nestly-dev-cluster"
+          + "ServiceName" = "nestly-dev-worker-consumer"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "CPUUtilization"
+      + namespace                             = "AWS/ECS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 85
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.queue_oldest_message_age["analytics"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "queue_oldest_message_age" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers if SQS queue nestly-dev-analytics oldest visible message exceeds 300s"
+      + alarm_name                            = "nestly-dev-sqs-analytics-oldest-age"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "QueueName" = "nestly-dev-analytics"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "ApproximateAgeOfOldestMessage"
+      + namespace                             = "AWS/SQS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Maximum"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 300
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.queue_oldest_message_age["notifications"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "queue_oldest_message_age" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers if SQS queue nestly-dev-notifications oldest visible message exceeds 300s"
+      + alarm_name                            = "nestly-dev-sqs-notifications-oldest-age"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "QueueName" = "nestly-dev-notifications"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "ApproximateAgeOfOldestMessage"
+      + namespace                             = "AWS/SQS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Maximum"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 300
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.queue_oldest_message_age["provider-actions"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "queue_oldest_message_age" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers if SQS queue nestly-dev-provider-actions oldest visible message exceeds 300s"
+      + alarm_name                            = "nestly-dev-sqs-provider-actions-oldest-age"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "QueueName" = "nestly-dev-provider-actions"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "ApproximateAgeOfOldestMessage"
+      + namespace                             = "AWS/SQS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Maximum"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 300
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.queue_oldest_message_age["search-index"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "queue_oldest_message_age" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers if SQS queue nestly-dev-search-index oldest visible message exceeds 300s"
+      + alarm_name                            = "nestly-dev-sqs-search-index-oldest-age"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "QueueName" = "nestly-dev-search-index"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "ApproximateAgeOfOldestMessage"
+      + namespace                             = "AWS/SQS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Maximum"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 300
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.rds_connections will be created
+  + resource "aws_cloudwatch_metric_alarm" "rds_connections" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when RDS active DB connections exceed 75"
+      + alarm_name                            = "nestly-dev-rds-connections-high"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "DBInstanceIdentifier" = "nestly-dev-postgres"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "DatabaseConnections"
+      + namespace                             = "AWS/RDS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 75
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.rds_cpu will be created
+  + resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when RDS CPU utilization exceeds 80%"
+      + alarm_name                            = "nestly-dev-rds-cpu-high"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "DBInstanceIdentifier" = "nestly-dev-postgres"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "CPUUtilization"
+      + namespace                             = "AWS/RDS"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 80
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.rds_free_storage will be created
+  + resource "aws_cloudwatch_metric_alarm" "rds_free_storage" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when RDS free storage drops below 2 GiB"
+      + alarm_name                            = "nestly-dev-rds-storage-low"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "LessThanThreshold"
+      + dimensions                            = {
+          + "DBInstanceIdentifier" = "nestly-dev-postgres"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "FreeStorageSpace"
+      + namespace                             = "AWS/RDS"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 2147483648
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.redis_cpu will be created
+  + resource "aws_cloudwatch_metric_alarm" "redis_cpu" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when Redis EngineCPUUtilization exceeds 80%"
+      + alarm_name                            = "nestly-dev-redis-cpu-high"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "ReplicationGroupId" = "nestly-dev-redis"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "EngineCPUUtilization"
+      + namespace                             = "AWS/ElastiCache"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 80
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.redis_evictions will be created
+  + resource "aws_cloudwatch_metric_alarm" "redis_evictions" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when Redis evicts keys due to memory pressure"
+      + alarm_name                            = "nestly-dev-redis-evictions"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "ReplicationGroupId" = "nestly-dev-redis"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 1
+      + id                                    = (known after apply)
+      + metric_name                           = "Evictions"
+      + namespace                             = "AWS/ElastiCache"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Sum"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 0
+      + treat_missing_data                    = "notBreaching"
+    }
+
+  # module.observability.aws_cloudwatch_metric_alarm.redis_memory will be created
+  + resource "aws_cloudwatch_metric_alarm" "redis_memory" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Triggers when Redis memory usage exceeds 85%"
+      + alarm_name                            = "nestly-dev-redis-memory-high"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + dimensions                            = {
+          + "ReplicationGroupId" = "nestly-dev-redis"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "DatabaseMemoryUsagePercentage"
+      + namespace                             = "AWS/ElastiCache"
+      + ok_actions                            = (known after apply)
+      + period                                = 60
+      + statistic                             = "Average"
+      + tags                                  = {
+          + "Environment" = "dev"
+          + "Project"     = "nestly"
+        }
+      + tags_all                              = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Project"     = "nestly"
+        }
+      + threshold                             = 85
+      + treat_missing_data                    = "missing"
+    }
+
+  # module.observability.aws_sns_topic.alerts will be created
+  + resource "aws_sns_topic" "alerts" {
+      + arn                         = (known after apply)
+      + beginning_archive_time      = (known after apply)
+      + content_based_deduplication = false
+      + fifo_throughput_scope       = (known after apply)
+      + fifo_topic                  = false
+      + id                          = (known after apply)
+      + kms_master_key_id           = "alias/aws/sns"
+      + name                        = "nestly-dev-alerts"
+      + name_prefix                 = (known after apply)
+      + owner                       = (known after apply)
+      + policy                      = (known after apply)
+      + signature_version           = (known after apply)
+      + tags                        = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-alerts"
+          + "Project"     = "nestly"
+        }
+      + tags_all                    = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-alerts"
+          + "Project"     = "nestly"
+        }
+      + tracing_config              = (known after apply)
+    }
+
+  # module.storage_cdn.aws_cloudfront_distribution.client will be created
+  + resource "aws_cloudfront_distribution" "client" {
+      + arn                             = (known after apply)
+      + caller_reference                = (known after apply)
+      + comment                         = "nestly-dev SPA client (S3 OAC) + /api/* reverse proxy (ALB)"
+      + continuous_deployment_policy_id = (known after apply)
+      + default_root_object             = "index.html"
+      + domain_name                     = (known after apply)
+      + enabled                         = true
+      + etag                            = (known after apply)
+      + hosted_zone_id                  = (known after apply)
+      + http_version                    = "http2and3"
+      + id                              = (known after apply)
+      + in_progress_validation_batches  = (known after apply)
+      + is_ipv6_enabled                 = true
+      + last_modified_time              = (known after apply)
+      + price_class                     = "PriceClass_100"
+      + retain_on_delete                = false
+      + staging                         = false
+      + status                          = (known after apply)
+      + tags                            = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-client-cdn"
+          + "Project"     = "nestly"
+        }
+      + tags_all                        = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-client-cdn"
+          + "Project"     = "nestly"
+        }
+      + trusted_key_groups              = (known after apply)
+      + trusted_signers                 = (known after apply)
+      + wait_for_deployment             = false
+
+      + default_cache_behavior {
+          + allowed_methods            = [
+              + "GET",
+              + "HEAD",
+            ]
+          + cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          + cached_methods             = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                   = true
+          + default_ttl                = (known after apply)
+          + max_ttl                    = (known after apply)
+          + min_ttl                    = 0
+          + response_headers_policy_id = (known after apply)
+          + target_origin_id           = "s3-client"
+          + trusted_key_groups         = (known after apply)
+          + trusted_signers            = (known after apply)
+          + viewer_protocol_policy     = "redirect-to-https"
+
+          + function_association {
+              + event_type   = "viewer-request"
+              + function_arn = (known after apply)
+            }
+
+          + grpc_config (known after apply)
+        }
+
+      + ordered_cache_behavior {
+          + allowed_methods            = [
+              + "DELETE",
+              + "GET",
+              + "HEAD",
+              + "OPTIONS",
+              + "PATCH",
+              + "POST",
+              + "PUT",
+            ]
+          + cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+          + cached_methods             = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                   = true
+          + default_ttl                = (known after apply)
+          + max_ttl                    = (known after apply)
+          + min_ttl                    = 0
+          + origin_request_policy_id   = (known after apply)
+          + path_pattern               = "/api/*"
+          + response_headers_policy_id = (known after apply)
+          + target_origin_id           = "alb-api"
+          + viewer_protocol_policy     = "redirect-to-https"
+
+          + grpc_config (known after apply)
+        }
+      + ordered_cache_behavior {
+          + allowed_methods            = [
+              + "GET",
+              + "HEAD",
+            ]
+          + cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+          + cached_methods             = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                   = false
+          + default_ttl                = (known after apply)
+          + max_ttl                    = (known after apply)
+          + min_ttl                    = 0
+          + origin_request_policy_id   = (known after apply)
+          + path_pattern               = "/healthz"
+          + response_headers_policy_id = (known after apply)
+          + target_origin_id           = "alb-api"
+          + viewer_protocol_policy     = "redirect-to-https"
+
+          + grpc_config (known after apply)
+        }
+      + ordered_cache_behavior {
+          + allowed_methods            = [
+              + "GET",
+              + "HEAD",
+            ]
+          + cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+          + cached_methods             = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                   = false
+          + default_ttl                = (known after apply)
+          + max_ttl                    = (known after apply)
+          + min_ttl                    = 0
+          + origin_request_policy_id   = (known after apply)
+          + path_pattern               = "/readyz"
+          + response_headers_policy_id = (known after apply)
+          + target_origin_id           = "alb-api"
+          + viewer_protocol_policy     = "redirect-to-https"
+
+          + grpc_config (known after apply)
+        }
+      + ordered_cache_behavior {
+          + allowed_methods            = [
+              + "GET",
+              + "HEAD",
+            ]
+          + cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+          + cached_methods             = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                   = true
+          + default_ttl                = (known after apply)
+          + max_ttl                    = (known after apply)
+          + min_ttl                    = 0
+          + path_pattern               = "/config.js"
+          + response_headers_policy_id = (known after apply)
+          + target_origin_id           = "s3-client"
+          + viewer_protocol_policy     = "redirect-to-https"
+
+          + grpc_config (known after apply)
+        }
+      + ordered_cache_behavior {
+          + allowed_methods            = [
+              + "GET",
+              + "HEAD",
+            ]
+          + cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+          + cached_methods             = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                   = true
+          + default_ttl                = (known after apply)
+          + max_ttl                    = (known after apply)
+          + min_ttl                    = 0
+          + path_pattern               = "/index.html"
+          + response_headers_policy_id = (known after apply)
+          + target_origin_id           = "s3-client"
+          + viewer_protocol_policy     = "redirect-to-https"
+
+          + grpc_config (known after apply)
+        }
+
+      + origin {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+      + origin {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+
+      + restrictions {
+          + geo_restriction {
+              + locations        = (known after apply)
+              + restriction_type = "none"
+            }
+        }
+
+      + viewer_certificate {
+          + cloudfront_default_certificate = true
+          + minimum_protocol_version       = "TLSv1"
+        }
+    }
+
+  # module.storage_cdn.aws_cloudfront_distribution.media will be created
+  + resource "aws_cloudfront_distribution" "media" {
+      + arn                             = (known after apply)
+      + caller_reference                = (known after apply)
+      + comment                         = "nestly-dev confirmed property media CDN (properties/* only)"
+      + continuous_deployment_policy_id = (known after apply)
+      + domain_name                     = (known after apply)
+      + enabled                         = true
+      + etag                            = (known after apply)
+      + hosted_zone_id                  = (known after apply)
+      + http_version                    = "http2and3"
+      + id                              = (known after apply)
+      + in_progress_validation_batches  = (known after apply)
+      + is_ipv6_enabled                 = true
+      + last_modified_time              = (known after apply)
+      + price_class                     = "PriceClass_100"
+      + retain_on_delete                = false
+      + staging                         = false
+      + status                          = (known after apply)
+      + tags                            = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-media-cdn"
+          + "Project"     = "nestly"
+        }
+      + tags_all                        = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-media-cdn"
+          + "Project"     = "nestly"
+        }
+      + trusted_key_groups              = (known after apply)
+      + trusted_signers                 = (known after apply)
+      + wait_for_deployment             = false
+
+      + default_cache_behavior {
+          + allowed_methods            = [
+              + "GET",
+              + "HEAD",
+            ]
+          + cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+          + cached_methods             = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                   = false
+          + default_ttl                = (known after apply)
+          + max_ttl                    = (known after apply)
+          + min_ttl                    = 0
+          + response_headers_policy_id = (known after apply)
+          + target_origin_id           = "s3-media"
+          + trusted_key_groups         = (known after apply)
+          + trusted_signers            = (known after apply)
+          + viewer_protocol_policy     = "redirect-to-https"
+
+          + function_association {
+              + event_type   = "viewer-request"
+              + function_arn = (known after apply)
+            }
+
+          + grpc_config (known after apply)
+        }
+
+      + ordered_cache_behavior {
+          + allowed_methods            = [
+              + "GET",
+              + "HEAD",
+            ]
+          + cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          + cached_methods             = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                   = true
+          + default_ttl                = (known after apply)
+          + max_ttl                    = (known after apply)
+          + min_ttl                    = 0
+          + path_pattern               = "properties/*"
+          + response_headers_policy_id = (known after apply)
+          + target_origin_id           = "s3-media"
+          + viewer_protocol_policy     = "redirect-to-https"
+
+          + grpc_config (known after apply)
+        }
+
+      + origin {
+          + connection_attempts      = 3
+          + connection_timeout       = 10
+          + domain_name              = (known after apply)
+          + origin_access_control_id = (known after apply)
+          + origin_id                = "s3-media"
+            # (1 unchanged attribute hidden)
+        }
+
+      + restrictions {
+          + geo_restriction {
+              + locations        = (known after apply)
+              + restriction_type = "none"
+            }
+        }
+
+      + viewer_certificate {
+          + cloudfront_default_certificate = true
+          + minimum_protocol_version       = "TLSv1"
+        }
+    }
+
+  # module.storage_cdn.aws_cloudfront_function.deny_non_properties will be created
+  + resource "aws_cloudfront_function" "deny_non_properties" {
+      + arn             = (known after apply)
+      + code            = <<-EOT
+            function handler(event) {
+              return {
+                statusCode: 403,
+                statusDescription: 'Forbidden',
+                headers: {
+                  'content-type': { value: 'text/plain' }
+                },
+                body: 'Forbidden'
+              };
+            }
+        EOT
+      + comment         = "Denies every request outside /properties/* at CloudFront edge (never exposes /uploads/*)"
+      + etag            = (known after apply)
+      + id              = (known after apply)
+      + live_stage_etag = (known after apply)
+      + name            = "nestly-dev-media-deny-non-properties"
+      + publish         = true
+      + runtime         = "cloudfront-js-2.0"
+      + status          = (known after apply)
+    }
+
+  # module.storage_cdn.aws_cloudfront_function.spa_rewrite will be created
+  + resource "aws_cloudfront_function" "spa_rewrite" {
+      + arn             = (known after apply)
+      + code            = <<-EOT
+            function handler(event) {
+              var request = event.request;
+              var uri = request.uri;
+              if (uri === '/' || !uri.includes('.')) {
+                request.uri = '/index.html';
+              }
+              return request;
+            }
+        EOT
+      + comment         = "Maps extensionless React Router paths to /index.html without hijacking /api/* 403/404 JSON errors"
+      + etag            = (known after apply)
+      + id              = (known after apply)
+      + live_stage_etag = (known after apply)
+      + name            = "nestly-dev-spa-rewrite"
+      + publish         = true
+      + runtime         = "cloudfront-js-2.0"
+      + status          = (known after apply)
+    }
+
+  # module.storage_cdn.aws_cloudfront_origin_access_control.client will be created
+  + resource "aws_cloudfront_origin_access_control" "client" {
+      + arn                               = (known after apply)
+      + description                       = "OAC for Nestly private S3 SPA client bucket"
+      + etag                              = (known after apply)
+      + id                                = (known after apply)
+      + name                              = "nestly-dev-client-oac"
+      + origin_access_control_origin_type = "s3"
+      + signing_behavior                  = "always"
+      + signing_protocol                  = "sigv4"
+    }
+
+  # module.storage_cdn.aws_cloudfront_origin_access_control.media will be created
+  + resource "aws_cloudfront_origin_access_control" "media" {
+      + arn                               = (known after apply)
+      + description                       = "OAC for Nestly private S3 media bucket"
+      + etag                              = (known after apply)
+      + id                                = (known after apply)
+      + name                              = "nestly-dev-media-oac"
+      + origin_access_control_origin_type = "s3"
+      + signing_behavior                  = "always"
+      + signing_protocol                  = "sigv4"
+    }
+
+  # module.storage_cdn.aws_cloudfront_origin_request_policy.api will be created
+  + resource "aws_cloudfront_origin_request_policy" "api" {
+      + arn     = (known after apply)
+      + comment = "Forwards auth, idempotency, correlation, CORS headers and query strings to Express API (Change #12)"
+      + etag    = (known after apply)
+      + id      = (known after apply)
+      + name    = "nestly-dev-api-origin-request-policy"
+
+      + cookies_config {
+          + cookie_behavior = "all"
+        }
+
+      + headers_config {
+          + header_behavior = "whitelist"
+
+          + headers {
+              + items = [
+                  + "Accept",
+                  + "Accept-Language",
+                  + "Authorization",
+                  + "CloudFront-Viewer-Address",
+                  + "Idempotency-Key",
+                  + "Origin",
+                  + "Referer",
+                  + "User-Agent",
+                  + "X-Request-Id",
+                ]
+            }
+        }
+
+      + query_strings_config {
+          + query_string_behavior = "all"
+        }
+    }
+
+  # module.storage_cdn.aws_cloudfront_response_headers_policy.security will be created
+  + resource "aws_cloudfront_response_headers_policy" "security" {
+      + arn     = (known after apply)
+      + comment = "Security headers for Nestly CloudFront responses (HSTS, nosniff, DENY framing, Referrer-Policy)"
+      + etag    = (known after apply)
+      + id      = (known after apply)
+      + name    = "nestly-dev-security-headers"
+
+      + security_headers_config {
+          + content_type_options {
+              + override = true
+            }
+          + frame_options {
+              + frame_option = "DENY"
+              + override     = false
+            }
+          + referrer_policy {
+              + override        = false
+              + referrer_policy = "strict-origin-when-cross-origin"
+            }
+          + strict_transport_security {
+              + access_control_max_age_sec = 31536000
+              + include_subdomains         = true
+              + override                   = true
+              + preload                    = true
+            }
+          + xss_protection {
+              + mode_block = true
+              + override   = false
+              + protection = true
+            }
+        }
+    }
+
+  # module.storage_cdn.aws_s3_bucket.client will be created
+  + resource "aws_s3_bucket" "client" {
+      + acceleration_status         = (known after apply)
+      + acl                         = (known after apply)
+      + arn                         = (known after apply)
+      + bucket                      = "nestly-dev-client-123456789012"
+      + bucket_domain_name          = (known after apply)
+      + bucket_prefix               = (known after apply)
+      + bucket_regional_domain_name = (known after apply)
+      + force_destroy               = false
+      + hosted_zone_id              = (known after apply)
+      + id                          = (known after apply)
+      + object_lock_enabled         = (known after apply)
+      + policy                      = (known after apply)
+      + region                      = (known after apply)
+      + request_payer               = (known after apply)
+      + tags                        = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-client-123456789012"
+          + "Project"     = "nestly"
+          + "Role"        = "client-spa"
+        }
+      + tags_all                    = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-client-123456789012"
+          + "Project"     = "nestly"
+          + "Role"        = "client-spa"
+        }
+      + website_domain              = (known after apply)
+      + website_endpoint            = (known after apply)
+
+      + cors_rule (known after apply)
+
+      + grant (known after apply)
+
+      + lifecycle_rule (known after apply)
+
+      + logging (known after apply)
+
+      + object_lock_configuration (known after apply)
+
+      + replication_configuration (known after apply)
+
+      + server_side_encryption_configuration (known after apply)
+
+      + versioning (known after apply)
+
+      + website (known after apply)
+    }
+
+  # module.storage_cdn.aws_s3_bucket.media will be created
+  + resource "aws_s3_bucket" "media" {
+      + acceleration_status         = (known after apply)
+      + acl                         = (known after apply)
+      + arn                         = (known after apply)
+      + bucket                      = "nestly-dev-media-123456789012"
+      + bucket_domain_name          = (known after apply)
+      + bucket_prefix               = (known after apply)
+      + bucket_regional_domain_name = (known after apply)
+      + force_destroy               = false
+      + hosted_zone_id              = (known after apply)
+      + id                          = (known after apply)
+      + object_lock_enabled         = (known after apply)
+      + policy                      = (known after apply)
+      + region                      = (known after apply)
+      + request_payer               = (known after apply)
+      + tags                        = {
+          + "Environment" = "dev"
+          + "Name"        = "nestly-dev-media-123456789012"
+          + "Project"     = "nestly"
+          + "Role"        = "media"
+        }
+      + tags_all                    = {
+          + "Environment" = "dev"
+          + "ManagedBy"   = "terraform"
+          + "Name"        = "nestly-dev-media-123456789012"
+          + "Project"     = "nestly"
+          + "Role"        = "media"
+        }
+      + website_domain              = (known after apply)
+      + website_endpoint            = (known after apply)
+
+      + cors_rule (known after apply)
+
+      + grant (known after apply)
+
+      + lifecycle_rule (known after apply)
+
+      + logging (known after apply)
+
+      + object_lock_configuration (known after apply)
+
+      + replication_configuration (known after apply)
+
+      + server_side_encryption_configuration (known after apply)
+
+      + versioning (known after apply)
+
+      + website (known after apply)
+    }
+
+  # module.storage_cdn.aws_s3_bucket_cors_configuration.media will be created
+  + resource "aws_s3_bucket_cors_configuration" "media" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + cors_rule {
+          + allowed_headers = [
+              + "*",
+            ]
+          + allowed_methods = [
+              + "GET",
+              + "HEAD",
+              + "PUT",
+            ]
+          + allowed_origins = (known after apply)
+          + expose_headers  = [
+              + "ETag",
+            ]
+            id              = null
+          + max_age_seconds = 3600
+        }
+    }
+
+  # module.storage_cdn.aws_s3_bucket_lifecycle_configuration.client will be created
+  + resource "aws_s3_bucket_lifecycle_configuration" "client" {
+      + bucket                                 = (known after apply)
+      + expected_bucket_owner                  = (known after apply)
+      + id                                     = (known after apply)
+      + transition_default_minimum_object_size = "all_storage_classes_128K"
+
+      + rule {
+          + id     = "abort-incomplete-multipart-uploads"
+          + status = "Enabled"
+            # (1 unchanged attribute hidden)
+
+          + abort_incomplete_multipart_upload {
+              + days_after_initiation = 1
+            }
+
+          + filter {
+                # (1 unchanged attribute hidden)
+            }
+        }
+      + rule {
+          + id     = "expire-old-client-versions"
+          + status = "Enabled"
+            # (1 unchanged attribute hidden)
+
+          + filter {
+                # (1 unchanged attribute hidden)
+            }
+
+          + noncurrent_version_expiration {
+              + noncurrent_days = 30
+            }
+        }
+    }
+
+  # module.storage_cdn.aws_s3_bucket_lifecycle_configuration.media will be created
+  + resource "aws_s3_bucket_lifecycle_configuration" "media" {
+      + bucket                                 = (known after apply)
+      + expected_bucket_owner                  = (known after apply)
+      + id                                     = (known after apply)
+      + transition_default_minimum_object_size = "all_storage_classes_128K"
+
+      + rule {
+          + id     = "expire-unconfirmed-pending-uploads"
+          + status = "Enabled"
+            # (1 unchanged attribute hidden)
+
+          + expiration {
+              + days                         = 1
+              + expired_object_delete_marker = false
+            }
+
+          + filter {
+              + prefix = "uploads/pending/"
+            }
+        }
+      + rule {
+          + id     = "abort-incomplete-multipart-uploads"
+          + status = "Enabled"
+            # (1 unchanged attribute hidden)
+
+          + abort_incomplete_multipart_upload {
+              + days_after_initiation = 1
+            }
+
+          + filter {
+                # (1 unchanged attribute hidden)
+            }
+        }
+      + rule {
+          + id     = "expire-old-noncurrent-versions"
+          + status = "Enabled"
+            # (1 unchanged attribute hidden)
+
+          + filter {
+                # (1 unchanged attribute hidden)
+            }
+
+          + noncurrent_version_expiration {
+              + noncurrent_days = 30
+            }
+        }
+    }
+
+  # module.storage_cdn.aws_s3_bucket_ownership_controls.client will be created
+  + resource "aws_s3_bucket_ownership_controls" "client" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + rule {
+          + object_ownership = "BucketOwnerEnforced"
+        }
+    }
+
+  # module.storage_cdn.aws_s3_bucket_ownership_controls.media will be created
+  + resource "aws_s3_bucket_ownership_controls" "media" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + rule {
+          + object_ownership = "BucketOwnerEnforced"
+        }
+    }
+
+  # module.storage_cdn.aws_s3_bucket_policy.client will be created
+  + resource "aws_s3_bucket_policy" "client" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + policy = (known after apply)
+    }
+
+  # module.storage_cdn.aws_s3_bucket_policy.media will be created
+  + resource "aws_s3_bucket_policy" "media" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + policy = (known after apply)
+    }
+
+  # module.storage_cdn.aws_s3_bucket_public_access_block.client will be created
+  + resource "aws_s3_bucket_public_access_block" "client" {
+      + block_public_acls       = true
+      + block_public_policy     = true
+      + bucket                  = (known after apply)
+      + id                      = (known after apply)
+      + ignore_public_acls      = true
+      + restrict_public_buckets = true
+    }
+
+  # module.storage_cdn.aws_s3_bucket_public_access_block.media will be created
+  + resource "aws_s3_bucket_public_access_block" "media" {
+      + block_public_acls       = true
+      + block_public_policy     = true
+      + bucket                  = (known after apply)
+      + id                      = (known after apply)
+      + ignore_public_acls      = true
+      + restrict_public_buckets = true
+    }
+
+  # module.storage_cdn.aws_s3_bucket_server_side_encryption_configuration.client will be created
+  + resource "aws_s3_bucket_server_side_encryption_configuration" "client" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + rule {
+          + apply_server_side_encryption_by_default {
+              + sse_algorithm     = "AES256"
+                # (1 unchanged attribute hidden)
+            }
+        }
+    }
+
+  # module.storage_cdn.aws_s3_bucket_server_side_encryption_configuration.media will be created
+  + resource "aws_s3_bucket_server_side_encryption_configuration" "media" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + rule {
+          + apply_server_side_encryption_by_default {
+              + sse_algorithm     = "AES256"
+                # (1 unchanged attribute hidden)
+            }
+        }
+    }
+
+  # module.storage_cdn.aws_s3_bucket_versioning.client will be created
+  + resource "aws_s3_bucket_versioning" "client" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + versioning_configuration {
+          + mfa_delete = (known after apply)
+          + status     = "Enabled"
+        }
+    }
+
+  # module.storage_cdn.aws_s3_bucket_versioning.media will be created
+  + resource "aws_s3_bucket_versioning" "media" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+
+      + versioning_configuration {
+          + mfa_delete = (known after apply)
+          + status     = "Enabled"
+        }
+    }
+
+Plan: 154 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + alerts_sns_topic_arn           = (known after apply)
+  + api_forwarded_headers_for_test = [
+      + "Accept",
+      + "Accept-Language",
+      + "Authorization",
+      + "CloudFront-Viewer-Address",
+      + "Idempotency-Key",
+      + "Origin",
+      + "Referer",
+      + "User-Agent",
+      + "X-Request-Id",
+    ]
+  + audit_summary_for_test         = {
+      + compute     = {
+          + alb_default_status_code        = "403"
+          + alb_deregistration_delay       = 30
+          + api_circuit_breaker_enable     = true
+          + api_circuit_breaker_rollback   = true
+          + api_env_map                    = (known after apply)
+          + api_readonly_root_fs           = (known after apply)
+          + api_stop_timeout               = (known after apply)
+          + ecr_image_tag_mutability       = "IMMUTABLE"
+          + ecr_repository_name            = "nestly-dev-nestly-server"
+          + ecr_scan_on_push               = true
+          + exec_command_disabled_all      = true
+          + worker_scheduler_desired_count = 1
+        }
+      + data        = {
+          + opensearch_count                = 0
+          + rds_backup_retention_period     = 7
+          + rds_deletion_protection         = true
+          + rds_manage_master_user_password = true
+          + rds_publicly_accessible         = false
+          + rds_storage_encrypted           = true
+          + redis_at_rest_encrypted         = "true"
+          + redis_transit_encrypted         = true
+        }
+      + edge_waf    = false
+      + messaging   = {
+          + dlq_count        = 4
+          + main_queue_count = 4
+          + queues           = {
+              + analytics        = {
+                  + max_receive_count = (known after apply)
+                  + sse_enabled       = true
+                }
+              + notifications    = {
+                  + max_receive_count = (known after apply)
+                  + sse_enabled       = true
+                }
+              + provider-actions = {
+                  + max_receive_count = (known after apply)
+                  + sse_enabled       = true
+                }
+              + search-index     = {
+                  + max_receive_count = (known after apply)
+                  + sse_enabled       = true
+                }
+            }
+        }
+      + storage_cdn = {
+          + client_alb_custom_header_names = [
+              + "X-Origin-Verify",
+            ]
+          + client_api_behavior            = {
+              + allowed_methods = [
+                  + "DELETE",
+                  + "GET",
+                  + "HEAD",
+                  + "OPTIONS",
+                  + "PATCH",
+                  + "POST",
+                  + "PUT",
+                ]
+              + cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+            }
+          + client_public_access           = {
+              + block_public_acls       = true
+              + block_public_policy     = true
+              + ignore_public_acls      = true
+              + restrict_public_buckets = true
+            }
+          + media_ordered_path_patterns    = [
+              + "properties/*",
+            ]
+          + media_public_access            = {
+              + block_public_acls       = true
+              + block_public_policy     = true
+              + ignore_public_acls      = true
+              + restrict_public_buckets = true
+            }
+        }
+    }
+  + client_bucket_name             = "nestly-dev-client-123456789012"
+  + client_cloudfront_id           = (known after apply)
+  + client_cloudfront_url          = (known after apply)
+  + ecr_server_repository_url      = (known after apply)
+  + ecs_cluster_name               = "nestly-dev-cluster"
+  + ecs_services                   = {
+      + api              = "nestly-dev-api"
+      + worker_consumer  = "nestly-dev-worker-consumer"
+      + worker_scheduler = "nestly-dev-worker-scheduler"
+    }
+  + github_deploy_role_arn         = (known after apply)
+  + init_task_definition_family    = "nestly-dev-init"
+  + media_bucket_name              = "nestly-dev-media-123456789012"
+  + media_cloudfront_url           = (known after apply)
+  + policy_documents_for_test      = {
+      + api_task         = (known after apply)
+      + client_bucket    = (known after apply)
+      + ecs_execution    = (known after apply)
+      + github_deploy    = (known after apply)
+      + github_trust     = (known after apply)
+      + init_task        = jsonencode(
+            {
+              + Statement = []
+              + Version   = "2012-10-17"
+            }
+        )
+      + media_bucket     = (known after apply)
+      + worker_consumer  = (known after apply)
+      + worker_scheduler = (known after apply)
+    }
+  + rds_master_user_secret_arn     = (known after apply)
+  + secret_names                   = {
+      + database_url           = "nestly-dev/database-url"
+      + jwt_access_secret      = "nestly-dev/jwt-access-secret"
+      + origin_verify_header   = "nestly-dev/origin-verify-header"
+      + payment_webhook_secret = "nestly-dev/payment-webhook-secret"
+      + redis_url              = "nestly-dev/redis-url"
+    }
+
+─────────────────────────────────────────────────────────────────────────────
+
+Saved the plan to: /tmp/offline.tfplan
+
+To perform exactly these actions, run the following command to apply:
+    terraform apply "/tmp/offline.tfplan"

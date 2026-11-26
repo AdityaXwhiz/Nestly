@@ -15,8 +15,8 @@ FROM nginxinc/nginx-unprivileged:1.27.4-alpine AS runner
 
 USER root
 
-# Dedicated directory writable by nginx user (UID 101) for runtime config.js
-RUN mkdir -p /etc/nginx/runtime && chown -R 101:101 /etc/nginx/runtime
+# Dedicated directory writable by nginx user (UID 101) for runtime config.js and optional upstream resolver update
+RUN mkdir -p /etc/nginx/runtime && chown -R 101:101 /etc/nginx/runtime /etc/nginx/conf.d
 
 COPY --chown=101:101 --from=builder /app/dist /usr/share/nginx/html
 COPY --chown=101:101 nginx.conf /etc/nginx/conf.d/default.conf

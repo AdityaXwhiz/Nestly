@@ -16,6 +16,9 @@ volumes/
 # Logs
 *.log
 
+# Load test raw outputs & generated fixture pools (Step 13C)
+load-tests/results/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -23,3 +26,13 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Terraform (never commit state, downloaded providers, or variable files with real IDs/emails; DO commit .terraform.lock.hcl)
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+!**/*.tfvars.example
+**/.tflint.d/
+**/tfplan
+!infrastructure/aws/envs/offline-plan/offline.tfvars

@@ -4,6 +4,9 @@
   "type": "module",
   "scripts": {
     "smoke": "node server/scripts/smoke.js",
-    "chaos:check": "node server/scripts/chaosCheck.js"
+    "chaos:check": "node server/scripts/chaosCheck.js",
+    "verify:invariants": "node server/scripts/verifyInvariants.js",
+    "loadtest:seed": "node server/scripts/seedLoadTest.js",
+    "loadtest:run": "node server/scripts/runLoadTest.js"
   }
 }

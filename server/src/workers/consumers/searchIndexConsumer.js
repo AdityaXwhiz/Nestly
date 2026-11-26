@@ -27,6 +27,11 @@ export function createSearchIndexConsumer({
     handler: async (envelope) => {
       const { eventType, aggregateId } = envelope;
 
+      if (!client) {
+        logger.debug({ eventType, aggregateId }, 'OpenSearch disabled; skipping search-index event and acking');
+        return;
+      }
+
       // 1. Property catalog events
       if (eventType.startsWith('property.')) {
         const property = await propertiesService.findPropertyInternal(aggregateId);

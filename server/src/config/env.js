@@ -7,6 +7,18 @@ import { z } from 'zod';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
+const emptyToUndefined = (val) =>
+  typeof val === 'string' && val.trim() === '' ? undefined : val;
+
+const disabledOrUrl = (val) => {
+  if (typeof val !== 'string') return val;
+  const trimmed = val.trim();
+  if (!trimmed || ['disabled', 'none', 'false'].includes(trimmed.toLowerCase())) {
+    return null;
+  }
+  return trimmed;
+};
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'production', 'test'])
@@ -46,7 +58,23 @@ const envSchema = z.object({
   DATABASE_URL: z
     .string()
     .url()
-    .startsWith('postgresql://', 'Must be a postgresql:// connection string'),
+    .refine(
+      (v) => v.startsWith('postgresql://') || v.startsWith('postgres://'),
+      'Must be a postgresql:// or postgres:// connection string',
+    ),
+
+  DB_SSL: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .default('false')
+      .transform((v) => v === 'true' || v === '1'),
+  ),
+
+  DB_SSL_CA_PATH: z.preprocess(
+    emptyToUndefined,
+    z.string().min(1).optional(),
+  ),
 
   DB_POOL_MAX: z
     .string()
@@ -57,7 +85,10 @@ const envSchema = z.object({
   REDIS_URL: z
     .string()
     .url()
-    .startsWith('redis://', 'Must be a redis:// connection string'),
+    .refine(
+      (v) => v.startsWith('redis://') || v.startsWith('rediss://'),
+      'Must be a redis:// or rediss:// connection string',
+    ),
 
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
@@ -128,6 +159,18 @@ const envSchema = z.object({
     .pipe(z.number().int().positive())
     .default('7'),
 
+  OUTBOX_BATCH_SIZE: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().positive().max(500))
+    .default('100'),
+
+  OUTBOX_POLL_INTERVAL_MS: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().min(250).max(60000))
+    .default('1000'),
+
   NOTIFICATION_RETRY_MINUTES: z
     .string()
     .transform(Number)
@@ -142,70 +185,100 @@ const envSchema = z.object({
     .string()
     .default('us-east-1'),
 
-  SQS_ENDPOINT: z
-    .string()
-    .url()
-    .optional(),
+  SQS_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z.string().url().optional(),
+  ),
 
-  AWS_ACCESS_KEY_ID: z
-    .string()
-    .optional(),
+  AWS_ACCESS_KEY_ID: z.preprocess(
+    emptyToUndefined,
+    z.string().optional(),
+  ),
 
-  AWS_SECRET_ACCESS_KEY: z
-    .string()
-    .optional(),
+  AWS_SECRET_ACCESS_KEY: z.preprocess(
+    emptyToUndefined,
+    z.string().optional(),
+  ),
+
+  INIT_TARGET: z.preprocess(
+    emptyToUndefined,
+    z.enum(['local', 'aws']).default('local'),
+  ),
 
   SQS_QUEUE_URL_NOTIFICATIONS: z
     .string()
     .url()
     .default('http://localhost:9324/000000000000/notifications'),
 
+  SQS_QUEUE_URL_NOTIFICATIONS_DLQ: z.preprocess(
+    emptyToUndefined,
+    z.string().url().optional(),
+  ),
+
   SQS_QUEUE_URL_PROVIDER_ACTIONS: z
     .string()
     .url()
     .default('http://localhost:9324/000000000000/provider-actions'),
+
+  SQS_QUEUE_URL_PROVIDER_ACTIONS_DLQ: z.preprocess(
+    emptyToUndefined,
+    z.string().url().optional(),
+  ),
 
   SQS_QUEUE_URL_ANALYTICS: z
     .string()
     .url()
     .default('http://localhost:9324/000000000000/analytics'),
 
+  SQS_QUEUE_URL_ANALYTICS_DLQ: z.preprocess(
+    emptyToUndefined,
+    z.string().url().optional(),
+  ),
+
   SQS_QUEUE_URL_SEARCH_INDEX: z
     .string()
     .url()
     .default('http://localhost:9324/000000000000/search-index'),
 
+  SQS_QUEUE_URL_SEARCH_INDEX_DLQ: z.preprocess(
+    emptyToUndefined,
+    z.string().url().optional(),
+  ),
+
   // S3 / MinIO (media storage)
-  S3_ENDPOINT: z
-    .string()
-    .url()
-    .optional(),
+  S3_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z.string().url().optional(),
+  ),
 
   // Browser-facing S3 endpoint used strictly for generating presigned PUT URLs (Change #1)
-  S3_PUBLIC_ENDPOINT: z
-    .string()
-    .url()
-    .optional(),
+  S3_PUBLIC_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z.string().url().optional(),
+  ),
 
   S3_BUCKET: z
     .string()
     .default('nestly-media'),
 
-  S3_FORCE_PATH_STYLE: z
-    .string()
-    .transform((v) => v === 'true' || v === '1')
-    .default('true'),
+  S3_FORCE_PATH_STYLE: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .default('true')
+      .transform((v) => v === 'true' || v === '1'),
+  ),
 
   MEDIA_PUBLIC_BASE_URL: z
     .string()
     .url()
     .default('http://localhost:9000/nestly-media'),
 
-  // OpenSearch (catalog search)
-  OPENSEARCH_ENDPOINT: z
-    .string()
-    .url()
-    .default('http://localhost:9200'),
+  // OpenSearch (catalog search — optional/disabled in AWS when using Postgres full-text search)
+  OPENSEARCH_ENDPOINT: z.preprocess(
+    disabledOrUrl,
+    z.string().url().nullable().optional(),
+  ),
 
   OPENSEARCH_INDEX_PREFIX: z
     .string()
@@ -272,6 +345,12 @@ const envSchema = z.object({
   ...data,
   PAYMENT_PROVIDER: data.PAYMENT_PROVIDER || 'mock',
   S3_PUBLIC_ENDPOINT: data.S3_PUBLIC_ENDPOINT || data.S3_ENDPOINT,
+  OPENSEARCH_ENDPOINT:
+    data.OPENSEARCH_ENDPOINT !== undefined
+      ? data.OPENSEARCH_ENDPOINT
+      : data.NODE_ENV === 'production'
+        ? null
+        : 'http://localhost:9200',
   // AWS key defaults apply ONLY in non-production when SQS_ENDPOINT or S3_ENDPOINT is set
   AWS_ACCESS_KEY_ID:
     data.AWS_ACCESS_KEY_ID ||

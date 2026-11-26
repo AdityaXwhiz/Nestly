@@ -64,14 +64,38 @@ export async function runSchedulerTick(lockId, taskName, taskFn) {
 
 /**
  * 1. Outbox publisher tick (role: publisher)
+ * Drains up to 10 consecutive batches per tick (bounded by 4s budget) so sudden booking
+ * spikes drain promptly instead of stalling at a single fixed batch per interval.
  */
 export async function runOutboxTick(client = null) {
+  const batchSize = env.OUTBOX_BATCH_SIZE;
+  const maxBatches = 10;
+  const startedAt = Date.now();
+
+  const drainBatches = async (tx) => {
+    let totalPublished = 0;
+    let totalFailed = 0;
+    const allResults = [];
+
+    for (let i = 0; i < maxBatches; i += 1) {
+      const res = await publishOutbox({ batchSize, client: tx });
+      totalPublished += res.publishedCount || 0;
+      totalFailed += res.failedCount || 0;
+      if (Array.isArray(res.results)) {
+        allResults.push(...res.results);
+      }
+      if ((res.publishedCount || 0) < batchSize || Date.now() - startedAt > 4000) {
+        break;
+      }
+    }
+
+    return { publishedCount: totalPublished, failedCount: totalFailed, results: allResults };
+  };
+
   if (client) {
-    return publishOutbox({ client });
+    return drainBatches(client);
   }
-  return runSchedulerTick(ADVISORY_LOCK_OUTBOX, 'outbox_publisher', (tx) =>
-    publishOutbox({ client: tx }),
-  );
+  return runSchedulerTick(ADVISORY_LOCK_OUTBOX, 'outbox_publisher', (tx) => drainBatches(tx));
 }
 
 /**
@@ -198,7 +222,7 @@ export function parseWorkerRoles(rolesInput = env.WORKER_ROLES) {
  */
 export function startWorker({
   roles = env.WORKER_ROLES,
-  outboxIntervalMs = 5000,
+  outboxIntervalMs = env.OUTBOX_POLL_INTERVAL_MS,
   sagaIntervalMs = 60000,
   holdSweeperIntervalMs = 30000,
   reconcilerIntervalMs = 30000,

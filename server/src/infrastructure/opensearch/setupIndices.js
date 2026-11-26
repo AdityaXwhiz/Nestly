@@ -16,6 +16,11 @@ export async function ensureAliasesExist({
   client = openSearchClient,
   indexPrefix = env.OPENSEARCH_INDEX_PREFIX,
 } = {}) {
+  if (!client) {
+    logger.info('OpenSearch endpoint disabled; skipping index/alias setup');
+    return { skipped: true, reason: 'OPENSEARCH_DISABLED' };
+  }
+
   const propertiesAlias = getPropertiesIndexAlias(indexPrefix);
   const servicesAlias = getServicesIndexAlias(indexPrefix);
 

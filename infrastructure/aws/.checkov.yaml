@@ -1,0 +1,49 @@
+framework:
+  - terraform
+
+skip-path:
+  - .terraform
+  - .terraform.lock.hcl
+
+# Explicitly reviewed suppressions for dev-baseline cost and Change #6/#7 constraints
+# (documented in infrastructure/aws/README.md). Zero wildcard IAM, open SG, or public storage skips exist.
+skip-check:
+  # AWS-managed SSE / KMS encryption used instead of paid CMKs in dev baseline
+  - CKV_AWS_136
+  - CKV_AWS_145
+  - CKV_AWS_149
+  - CKV_AWS_158
+  - CKV_AWS_191
+  - CKV_AWS_354
+  # Dev baseline single-AZ/non-CMK/retention-30d controls (variables allow flipping for prod)
+  - CKV_AWS_157
+  - CKV2_AWS_50
+  - CKV_AWS_118
+  - CKV_AWS_338
+  - CKV2_AWS_52
+  - CKV2_AWS_59
+  # Secret containers populated out-of-band without Lambda/Terraform secrets (Change #6)
+  - CKV_AWS_31
+  - CKV2_AWS_57
+  # Optional WAF & custom domain TLS cert disabled by default until custom domain is registered
+  - CKV_AWS_68
+  - CKV2_AWS_28
+  - CKV2_AWS_42
+  - CKV2_AWS_47
+  - CKV_AWS_174
+  - CKV_AWS_378
+  # Dev baseline omits dedicated S3 access/WAF log buckets, CRR, S3 notifications, and geo-blocking
+  - CKV_AWS_18
+  - CKV_AWS_86
+  - CKV_AWS_91
+  - CKV2_AWS_31
+  - CKV2_AWS_62
+  - CKV_AWS_144
+  - CKV_AWS_310
+  - CKV_AWS_374
+  # Standalone modules/network security groups are attached in compute & data modules across module boundaries
+  - CKV2_AWS_5
+
+soft-fail: false
+compact: true
+quiet: true

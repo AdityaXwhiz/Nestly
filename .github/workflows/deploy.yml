@@ -1,0 +1,158 @@
+name: Deploy to AWS (Manual Only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag_prefix:
+        description: "Optional image tag override (defaults to sha-<commit>)"
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aws-deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, Migrate & Deploy Nestly to AWS ECS + S3/CloudFront
+    runs-on: ubuntu-latest
+    environment: production
+    if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Configure AWS credentials via GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Build and push unified nestly-server image to ECR
+        id: server-image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPO: ${{ vars.ECR_SERVER_REPOSITORY }}
+          IMAGE_TAG: ${{ inputs.image_tag_prefix != '' && inputs.image_tag_prefix || format('sha-{0}', github.sha) }}
+        run: |
+          FULL_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+          docker build -t "${FULL_IMAGE}" ./server
+          docker push "${FULL_IMAGE}"
+          echo "image=${FULL_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js for client static bundle
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.14.0"
+          cache: "npm"
+          cache-dependency-path: "client/package-lock.json"
+
+      - name: Build SPA client, inject runtime config.js, upload to S3 & invalidate CloudFront
+        env:
+          CLIENT_BUCKET: ${{ vars.CLIENT_S3_BUCKET }}
+          CLIENT_CF_ID: ${{ vars.CLIENT_CLOUDFRONT_ID }}
+        run: |
+          npm --prefix client ci
+          npm --prefix client run build
+
+          printf 'window.__NESTLY_CONFIG__ = {\n  API_BASE_URL: "/api/v1"\n};\n' > client/dist/config.js
+
+          aws s3 sync client/dist "s3://${CLIENT_BUCKET}" \
+            --delete \
+            --exclude "index.html" \
+            --exclude "config.js" \
+            --cache-control "public,max-age=31536000,immutable"
+
+          aws s3 cp client/dist/index.html "s3://${CLIENT_BUCKET}/index.html" \
+            --cache-control "no-store, no-cache, must-revalidate" \
+            --content-type "text/html; charset=utf-8"
+
+          aws s3 cp client/dist/config.js "s3://${CLIENT_BUCKET}/config.js" \
+            --cache-control "no-store, no-cache, must-revalidate" \
+            --content-type "application/javascript; charset=utf-8"
+
+          aws cloudfront create-invalidation \
+            --distribution-id "${CLIENT_CF_ID}" \
+            --paths "/index.html" "/config.js" "/*"
+
+      - name: Register updated ECS task definitions (init, api, worker-scheduler, worker-consumer)
+        id: task-defs
+        env:
+          NAME_PREFIX: ${{ vars.NAME_PREFIX || 'nestly-dev' }}
+          NEW_IMAGE: ${{ steps.server-image.outputs.image }}
+        run: |
+          register_next_rev() {
+            local family="$1"
+            local def_json
+            def_json=$(aws ecs describe-task-definition --task-definition "${family}" --query 'taskDefinition')
+            local clean_json
+            clean_json=$(echo "${def_json}" | jq --arg img "${NEW_IMAGE}" '
+              .containerDefinitions |= map(.image = $img)
+              | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+            ')
+            aws ecs register-task-definition --cli-input-json "${clean_json}" --query 'taskDefinition.taskDefinitionArn' --output text
+          }
+
+          echo "init_arn=$(register_next_rev "${NAME_PREFIX}-init")" >> "$GITHUB_OUTPUT"
+          echo "api_arn=$(register_next_rev "${NAME_PREFIX}-api")" >> "$GITHUB_OUTPUT"
+          echo "scheduler_arn=$(register_next_rev "${NAME_PREFIX}-worker-scheduler")" >> "$GITHUB_OUTPUT"
+          echo "consumer_arn=$(register_next_rev "${NAME_PREFIX}-worker-consumer")" >> "$GITHUB_OUTPUT"
+
+      - name: Run one-off ECS init/migration task (INIT_TARGET=aws) and wait for success
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER_NAME }}
+          INIT_TASK_DEF: ${{ steps.task-defs.outputs.init_arn }}
+          PRIVATE_SUBNETS: ${{ vars.PRIVATE_APP_SUBNETS }}
+          WORKER_SG: ${{ vars.WORKER_SECURITY_GROUP_ID }}
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${ECS_CLUSTER}" \
+            --launch-type FARGATE \
+            --task-definition "${INIT_TASK_DEF}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNETS}],securityGroups=[${WORKER_SG}],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          aws ecs wait tasks-stopped --cluster "${ECS_CLUSTER}" --tasks "${TASK_ARN}"
+
+          EXIT_CODE=$(aws ecs describe-tasks --cluster "${ECS_CLUSTER}" --tasks "${TASK_ARN}" --query 'tasks[0].containers[0].exitCode' --output text)
+          echo "Init task exit code: ${EXIT_CODE}"
+          if [ "${EXIT_CODE}" != "0" ]; then
+            echo "Init/migration task failed!" >&2
+            exit 1
+          fi
+
+      - name: Roll out ECS services (api, worker-scheduler, worker-consumer) and wait for stability
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER_NAME }}
+          NAME_PREFIX: ${{ vars.NAME_PREFIX || 'nestly-dev' }}
+          API_TASK_DEF: ${{ steps.task-defs.outputs.api_arn }}
+          SCHEDULER_TASK_DEF: ${{ steps.task-defs.outputs.scheduler_arn }}
+          CONSUMER_TASK_DEF: ${{ steps.task-defs.outputs.consumer_arn }}
+        run: |
+          aws ecs update-service --cluster "${ECS_CLUSTER}" --service "${NAME_PREFIX}-api" --task-definition "${API_TASK_DEF}" >/dev/null
+          aws ecs update-service --cluster "${ECS_CLUSTER}" --service "${NAME_PREFIX}-worker-scheduler" --task-definition "${SCHEDULER_TASK_DEF}" >/dev/null
+          aws ecs update-service --cluster "${ECS_CLUSTER}" --service "${NAME_PREFIX}-worker-consumer" --task-definition "${CONSUMER_TASK_DEF}" >/dev/null
+
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER}" \
+            --services "${NAME_PREFIX}-api" "${NAME_PREFIX}-worker-scheduler" "${NAME_PREFIX}-worker-consumer"
+
+      - name: Verify live HTTPS /healthz and /readyz through CloudFront single origin
+        env:
+          BASE_URL: ${{ vars.CLIENT_CLOUDFRONT_URL }}
+        run: |
+          curl -fsS --retry 5 --retry-delay 5 "${BASE_URL}/healthz"
+          echo ""
+          curl -fsS --retry 5 --retry-delay 5 "${BASE_URL}/readyz"
+          echo ""

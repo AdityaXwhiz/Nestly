@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import pg from 'pg';
 import { env } from '../config/env.js';
 import { registerDbPoolMetrics } from './metrics/index.js';
@@ -5,10 +6,29 @@ import { registerDbPoolMetrics } from './metrics/index.js';
 // Parse PostgreSQL int8 (bigint / OID 20) as JavaScript integer numbers
 pg.types.setTypeParser(20, (val) => (val === null ? null : parseInt(val, 10)));
 
-export const pool = new pg.Pool({
-  connectionString: env.DATABASE_URL,
-  max: env.DB_POOL_MAX,
-});
+/**
+ * Builds pg.Pool configuration from environment settings.
+ * Enforces rejectUnauthorized: true whenever DB_SSL is enabled (Change #2).
+ */
+export function buildPgPoolConfig(envConfig = env) {
+  const config = {
+    connectionString: envConfig.DATABASE_URL,
+    max: envConfig.DB_POOL_MAX,
+  };
+
+  if (envConfig.DB_SSL) {
+    config.ssl = {
+      rejectUnauthorized: true,
+    };
+    if (envConfig.DB_SSL_CA_PATH) {
+      config.ssl.ca = fs.readFileSync(envConfig.DB_SSL_CA_PATH, 'utf8');
+    }
+  }
+
+  return config;
+}
+
+export const pool = new pg.Pool(buildPgPoolConfig(env));
 
 registerDbPoolMetrics(pool);
 

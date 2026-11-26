@@ -102,3 +102,9 @@ CHAOS_ENABLED=true npm run chaos:check
 | `SearchDependencyDown` | `2m` | OpenSearch container down or cluster unhealthy | Check `opensearch` container memory/logs; catalog searches automatically degrade to PostgreSQL until recovered. |
 | `CoreDependencyDown` | `1m` | Postgres, ElasticMQ, or MinIO unreachable by collector probe | Inspect failing container health (`docker compose ps`) and restore connectivity immediately. |
 | `TargetDown` | `1m` | API, scheduler, or consumer metrics target unreachable | Inspect container state and exit logs (`docker compose logs <service>`); verify graceful shutdown/restart health. |
+
+---
+
+## Load Tests & Invariant Verification (Step 13C)
+
+Load tests run in an isolated `nestly-load` Compose project (`docker-compose.loadtest.yml`) via pinned `grafana/k6:0.55.0`, followed automatically by database and SQS invariant verification (`npm run verify:invariants`). See [docs/load-test-report.md](file:///Users/adityasingh/Desktop/Nestly/docs/load-test-report.md) and [load-tests/README.md](file:///Users/adityasingh/Desktop/Nestly/load-tests/README.md).

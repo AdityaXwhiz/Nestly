@@ -18,6 +18,9 @@ import {
 } from './index.js';
 
 async function probeOpenSearch() {
+  if (!env.OPENSEARCH_ENDPOINT) {
+    return 0;
+  }
   try {
     const res = await fetch(`${env.OPENSEARCH_ENDPOINT}/_cluster/health?local=true`, {
       signal: AbortSignal.timeout(2000),
